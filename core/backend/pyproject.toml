@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infrastructure-toolkit"
+version = "1.0.0"
+description = "Standardized CLI toolkit for infrastructure management with built-in safety mechanisms"
+authors = [
+    {name = "Claude Code", email = "noreply@anthropic.com"}
+]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",  # For beautiful CLI output
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Systems Administration",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+infra-toolkit = "infra_toolkit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["infra_toolkit*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=infra_toolkit --cov-report=term-missing"
