@@ -113,6 +113,101 @@ Restore tunnel configuration from a backup:
 infra-toolkit cloudflare restore /path/to/backup.json
 ```
 
+### Pterodactyl Game Server Monitoring
+
+The Pterodactyl tool provides **read-only** monitoring and diagnosis of game server infrastructure.
+
+#### Health Check
+
+Check panel and API connectivity:
+
+```bash
+infra-toolkit pterodactyl health-check
+```
+
+#### List Wings (Nodes)
+
+Display all configured wings with status:
+
+```bash
+infra-toolkit pterodactyl nodes
+```
+
+**Output includes:**
+- Node ID and name
+- FQDN configuration
+- Configuration warnings (if any)
+- Memory allocation
+
+#### Diagnose Tunnel Configuration
+
+**Automatically detect the "hollow hearts" issue:**
+
+```bash
+infra-toolkit pterodactyl diagnose
+```
+
+This command checks for:
+- Cloudflare tunnel pointing to wrong port (443 instead of 48080)
+- Panel database node scheme mismatches (HTTPS instead of HTTP)
+- Browser heartbeat failures
+
+**Example output when issue detected:**
+```
+⚠ Issues detected!
+
+Node: games-node-1.haymoed.com
+  Issue: Scheme mismatch
+  Current: https
+  Expected: http
+  Impact: Browser heartbeat will fail (hollow hearts)
+  Fix: Update Cloudflare tunnel to point games-node-1.haymoed.com → http://192.168.1.71:48080
+```
+
+#### Node Status
+
+Get detailed status for a specific wing:
+
+```bash
+infra-toolkit pterodactyl node-status 1
+```
+
+#### List Game Servers
+
+List all game servers or filter by node:
+
+```bash
+# All servers
+infra-toolkit pterodactyl servers
+
+# Servers on specific node
+infra-toolkit pterodactyl servers --node 1
+```
+
+#### Common Issue: Hollow Hearts
+
+When wings show "hollow hearts" (disconnected) in the panel:
+
+1. **Diagnose the issue:**
+   ```bash
+   infra-toolkit pterodactyl diagnose
+   ```
+
+2. **Verify Cloudflare tunnel:**
+   ```bash
+   infra-toolkit cloudflare list | grep games-node
+   ```
+
+3. **If tunnel is misconfigured, fix it:**
+   ```bash
+   infra-toolkit cloudflare add games-node-1 192.168.1.71 48080
+   infra-toolkit cloudflare add games-node-2 192.168.1.17 48080
+   ```
+
+4. **If tunnel is correct, update panel database** (manual SQL update required)
+
+**Root Cause:** The Cloudflare tunnel configuration drifts back to 443 when older scripts push full configs without merging.
+
 ### Global Options
 
 ```bash
@@ -128,7 +223,9 @@ infra-toolkit --version
 
 ## Configuration
 
-The Cloudflare tool reads configuration from `/mnt/tank/faststorage/general/repo/ai-config/scripts/config.yaml`:
+All tools read configuration from `/mnt/tank/faststorage/general/repo/ai-config/scripts/config.yaml`:
+
+### Cloudflare Configuration
 
 ```yaml
 cloudflare:
@@ -149,6 +246,19 @@ You can specify which domain to manage using the `--domain` flag:
 ```bash
 infra-toolkit cloudflare --domain ramcyber list
 ```
+
+### Pterodactyl Configuration
+
+```yaml
+pterodactyl_api:
+  url: "https://games.haymoed.com"
+  key: "ptla_your-api-key-here"
+```
+
+**API Key:** Generate an Application API key from the Pterodactyl panel:
+1. Admin Panel → Application API
+2. Create New → Select "All" permissions
+3. Copy the API key
 
 ## Architecture
 
