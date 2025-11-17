@@ -16,11 +16,13 @@ from rich.table import Table
 
 from .base_tool import BaseTool
 from .tools.cloudflare import CloudflareTool
+from .tools.pterodactyl import PterodactylTool
 
 
 # Tool registry
 AVAILABLE_TOOLS: Dict[str, Type[BaseTool]] = {
     "cloudflare": CloudflareTool,
+    "pterodactyl": PterodactylTool,
 }
 
 
@@ -156,20 +158,35 @@ def execute_tool(args) -> int:
     tool_class = AVAILABLE_TOOLS[tool_name]
 
     try:
-        # Extract tool-specific options
+        # Extract common options
         dry_run = getattr(args, "dry_run", False)
         verbose = getattr(args, "verbose", False)
         no_verify = getattr(args, "no_verify", False)
-        domain = getattr(args, "domain", "haymoed")
 
-        # Initialize tool
+        # Initialize tool with appropriate parameters
         console.print(f"[bold cyan]Initializing {tool_name} tool...[/bold cyan]")
-        tool = tool_class(
-            domain=domain,
-            dry_run=dry_run,
-            verbose=verbose,
-            no_verify=no_verify
-        )
+
+        if tool_name == "cloudflare":
+            domain = getattr(args, "domain", "haymoed")
+            tool = tool_class(
+                domain=domain,
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        elif tool_name == "pterodactyl":
+            tool = tool_class(
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        else:
+            # Generic initialization for future tools
+            tool = tool_class(
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
 
         # Execute subcommand
         subcommand = getattr(args, "subcommand", None)
@@ -312,6 +329,129 @@ def execute_tool(args) -> int:
                 else:
                     console.print(f"\n[bold red]✗ Restore failed[/bold red]")
                     return 1
+
+        # Pterodactyl-specific commands
+        elif subcommand == "nodes":
+            nodes = tool.list_nodes()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("ID", style="cyan")
+            table.add_column("Name", style="cyan")
+            table.add_column("FQDN", style="green")
+            table.add_column("Status", style="white")
+            table.add_column("Memory", style="yellow")
+
+            for node in nodes:
+                # Status indicator
+                if node.get("is_expected"):
+                    if node.get("warning"):
+                        status = "[yellow]⚠ WARNING[/yellow]"
+                    else:
+                        status = "[green]✓ OK[/green]"
+                else:
+                    status = "[dim]Unknown[/dim]"
+
+                memory_gb = node.get("memory", 0) / 1024
+                table.add_row(
+                    str(node.get("id")),
+                    node.get("name", "N/A"),
+                    node.get("fqdn", "N/A"),
+                    status,
+                    f"{memory_gb:.1f} GB"
+                )
+
+            console.print(f"\n[bold]Pterodactyl Wings ({len(nodes)} total):[/bold]\n")
+            console.print(table)
+
+            # Show warnings if any
+            for node in nodes:
+                if node.get("warning"):
+                    console.print(f"\n[yellow]⚠ {node.get('fqdn')}:[/yellow] {node.get('warning')}")
+
+            console.print()
+
+        elif subcommand == "node-status":
+            node_id = args.node_id
+            status = tool.get_node_status(node_id)
+
+            console.print(f"\n[bold cyan]Node Status:[/bold cyan] {status.get('name')}\n")
+
+            table = Table(show_header=False)
+            table.add_column("Property", style="cyan")
+            table.add_column("Value", style="white")
+
+            table.add_row("FQDN", status.get("fqdn", "N/A"))
+            table.add_row("Maintenance Mode", "Yes" if status.get("is_maintenance") else "No")
+            table.add_row("Allocated Memory", f"{status.get('allocated_memory', 0) / 1024:.1f} GB")
+            table.add_row("Allocated Disk", f"{status.get('allocated_disk', 0) / 1024:.1f} GB")
+            table.add_row("Memory Overallocation", f"{status.get('memory_overallocate', 0)}%")
+            table.add_row("Disk Overallocation", f"{status.get('disk_overallocate', 0)}%")
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "diagnose":
+            console.print("[bold cyan]Diagnosing tunnel configuration...[/bold cyan]\n")
+
+            diagnosis = tool.diagnose_tunnel_config()
+
+            if diagnosis["status"] == "healthy":
+                console.print("[bold green]✓ No issues detected![/bold green]\n")
+            elif diagnosis["status"] == "issues_found":
+                console.print("[bold yellow]⚠ Issues detected![/bold yellow]\n")
+
+                for issue in diagnosis["issues"]:
+                    console.print(f"[yellow]Node:[/yellow] {issue['node']}")
+                    console.print(f"  [red]Issue:[/red] {issue['issue']}")
+                    console.print(f"  Current: {issue['current']}")
+                    console.print(f"  Expected: {issue['expected']}")
+                    console.print(f"  [yellow]Impact:[/yellow] {issue['impact']}")
+                    console.print(f"  [cyan]Fix:[/cyan] {issue['fix']}\n")
+
+            if diagnosis["recommendations"]:
+                console.print("[bold]Recommendations:[/bold]")
+                for rec in diagnosis["recommendations"]:
+                    console.print(f"  • {rec}")
+                console.print()
+
+        elif subcommand == "servers":
+            node_id = getattr(args, "node", None)
+
+            if node_id:
+                console.print(f"[bold cyan]Servers on node {node_id}:[/bold cyan]\n")
+            else:
+                console.print("[bold cyan]All game servers:[/bold cyan]\n")
+
+            servers = tool.list_servers(node_id=node_id)
+
+            if not servers:
+                console.print("[yellow]No servers found[/yellow]")
+                return 0
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("ID", style="cyan")
+            table.add_column("Name", style="white")
+            table.add_column("Node", style="green")
+            table.add_column("Status", style="yellow")
+            table.add_column("Memory", style="blue")
+
+            for server in servers:
+                status_str = server.get("status", "unknown")
+                if server.get("is_suspended"):
+                    status_str = "[red]suspended[/red]"
+
+                memory_mb = server.get("limits", {}).get("memory", 0)
+
+                table.add_row(
+                    str(server.get("id")),
+                    server.get("name", "N/A")[:30],  # Truncate long names
+                    str(server.get("node")),
+                    status_str,
+                    f"{memory_mb} MB"
+                )
+
+            console.print(table)
+            console.print()
 
         else:
             console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
