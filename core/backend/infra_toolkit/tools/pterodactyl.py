@@ -123,39 +123,46 @@ class PterodactylTool(BaseTool):
         """
         checks = {}
 
-        # Test panel connectivity
-        try:
-            response = self.session.get(
-                f"{self.panel_url}/api/application",
-                timeout=10
-            )
-            checks["panel_connectivity"] = response.status_code == 200
-            checks["api_authentication"] = response.status_code != 401
-        except Exception as e:
-            checks["panel_connectivity"] = False
-            checks["api_authentication"] = False
-            checks["error"] = str(e)
-
-        # Test application API access (requires valid token)
+        # Test application API access (confirms panel connectivity, auth, and API access)
         try:
             response = self.session.get(
                 f"{self.panel_url}/api/application/nodes",
                 timeout=10
             )
-            checks["nodes_api_access"] = response.status_code == 200
+
+            checks["panel_connectivity"] = response.status_code == 200
+            checks["api_authentication"] = response.status_code != 401
+            checks["api_access"] = response.status_code == 200
 
             if response.status_code == 200:
                 data = response.json()
                 node_count = len(data.get("data", []))
                 checks["node_count"] = node_count
+            elif response.status_code == 401:
+                checks["auth_error"] = "Invalid API token"
+            else:
+                checks["api_error"] = f"Unexpected status code: {response.status_code}"
+
+        except requests.exceptions.ConnectionError as e:
+            checks["panel_connectivity"] = False
+            checks["api_authentication"] = False
+            checks["api_access"] = False
+            checks["error"] = f"Connection failed: {str(e)}"
+        except requests.exceptions.Timeout as e:
+            checks["panel_connectivity"] = False
+            checks["api_authentication"] = False
+            checks["api_access"] = False
+            checks["error"] = f"Request timeout: {str(e)}"
         except Exception as e:
-            checks["nodes_api_access"] = False
-            checks["nodes_error"] = str(e)
+            checks["panel_connectivity"] = False
+            checks["api_authentication"] = False
+            checks["api_access"] = False
+            checks["error"] = str(e)
 
         # Determine overall status
         all_healthy = checks.get("panel_connectivity", False) and \
                      checks.get("api_authentication", False) and \
-                     checks.get("nodes_api_access", False)
+                     checks.get("api_access", False)
 
         status = "healthy" if all_healthy else "unhealthy"
 
