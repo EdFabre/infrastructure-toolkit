@@ -96,7 +96,7 @@ class PterodactylTool(BaseTool):
         """
         import yaml
 
-        config_path = Path("/mnt/tank/faststorage/general/repo/ai-config/scripts/config.yaml")
+        config_path = Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml")
 
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration not found: {config_path}")

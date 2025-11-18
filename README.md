@@ -223,7 +223,7 @@ infra-toolkit --version
 
 ## Configuration
 
-All tools read configuration from `/mnt/tank/faststorage/general/repo/ai-config/scripts/config.yaml`:
+All tools read configuration from `/mnt/tank/faststorage/general/repo/ai-config/config.yaml`:
 
 ### Cloudflare Configuration
 

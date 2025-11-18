@@ -90,9 +90,9 @@ class CloudflareTool(BaseTool):
             FileNotFoundError: If config file doesn't exist
             ValueError: If configuration is invalid
         """
-        # Look for config in ai-config/scripts/config.yaml
+        # Look for config in ai-config/config.yaml
         config_paths = [
-            Path("/mnt/tank/faststorage/general/repo/ai-config/scripts/config.yaml"),
+            Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml"),
             Path.home() / ".config" / "infrastructure-toolkit" / "config.yaml",
         ]
 
