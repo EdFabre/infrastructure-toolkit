@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .routers import performance, network, docker, cloudflare, pterodactyl
+from .routers import performance, network, docker, cloudflare, pterodactyl, websocket
 
 
 app = FastAPI(
@@ -39,6 +39,7 @@ app.include_router(network.router, prefix="/api/net", tags=["network"])
 app.include_router(docker.router, prefix="/api/docker", tags=["docker"])
 app.include_router(cloudflare.router, prefix="/api/cloudflare", tags=["cloudflare"])
 app.include_router(pterodactyl.router, prefix="/api/pterodactyl", tags=["pterodactyl"])
+app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 
 
 @app.get("/api/health")

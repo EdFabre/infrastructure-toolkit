@@ -506,6 +506,37 @@ class DockerTool(BaseTool):
             logger.error(f"Error cleaning up backups: {e}")
             return 0
 
+    def get_container_logs(self, container: str, tail: int = 100, follow: bool = False) -> str:
+        """
+        Get logs from a specific container.
+
+        Args:
+            container: Container name
+            tail: Number of lines to retrieve (default: 100)
+            follow: Follow log output (default: False)
+
+        Returns:
+            Container logs as string
+        """
+        try:
+            cmd = ["docker", "logs"]
+            if tail:
+                cmd.extend(["--tail", str(tail)])
+            if follow:
+                cmd.append("-f")
+            cmd.append(container)
+
+            result = self._execute_command(cmd)
+            if result.returncode == 0:
+                return result.stdout
+            else:
+                logger.error(f"Failed to get logs for {container}: {result.stderr}")
+                return f"Error: {result.stderr}"
+
+        except Exception as e:
+            logger.error(f"Error getting logs for {container}: {e}")
+            return f"Error: {str(e)}"
+
     def health_check(self) -> Dict[str, Any]:
         """
         Check Docker health and connectivity.
