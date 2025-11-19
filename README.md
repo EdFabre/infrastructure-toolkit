@@ -24,6 +24,49 @@ This project was created to prevent critical infrastructure configuration errors
 3. **Validating hostname counts** to detect suspicious changes (minimum 20 threshold)
 4. **Providing rollback capability** for quick recovery
 
+## Web Interface
+
+In addition to the CLI, Infrastructure Toolkit provides a web-based dashboard for real-time monitoring and management.
+
+### Quick Start
+
+1. **Start the FastAPI backend:**
+   ```bash
+   cd core/backend
+   uvicorn infra_toolkit.api.main:app --reload
+   ```
+
+2. **Start the React frontend** (in a new terminal):
+   ```bash
+   cd core/frontend
+   npm install
+   npm run dev
+   ```
+
+3. **Access the dashboard:**
+   ```
+   http://localhost:5173
+   ```
+
+### Features
+
+- **Performance Dashboard** - Real-time monitoring of all servers with auto-refresh
+- **Network Monitoring** - UniFi network health, devices, and client tracking
+- **Docker Management** - Container status across multiple servers
+- **Auto-generated API Docs** - Available at `http://localhost:8000/api/docs`
+
+### API Endpoints
+
+All CLI tools are exposed via REST API at `/api/*`:
+
+- `/api/perf/*` - Performance monitoring (dashboard, metrics, summary)
+- `/api/net/*` - Network management (health, networks, wifi, devices, clients)
+- `/api/docker/*` - Docker operations (containers, health)
+- `/api/cloudflare/*` - Cloudflare tunnel management
+- `/api/pterodactyl/*` - Game server monitoring
+
+See the [Architecture Documentation](docs/ARCHITECTURE.md) for complete API details.
+
 ## Installation
 
 ### From Source (Development)
