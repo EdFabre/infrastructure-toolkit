@@ -1,0 +1,604 @@
+openapi: 3.0.0
+info:
+  title: Infrastructure Toolkit API
+  description: REST API for infrastructure monitoring and management
+  version: 1.0.0
+  contact:
+    name: Infrastructure Toolkit
+    url: https://github.com/EdFabre/infrastructure-toolkit
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://infra.haymoed.com
+    description: Production server
+
+tags:
+  - name: performance
+    description: Server performance monitoring
+  - name: network
+    description: Network and UniFi monitoring
+  - name: docker
+    description: Docker container management
+  - name: cloudflare
+    description: Cloudflare tunnel management
+  - name: pterodactyl
+    description: Game server monitoring
+
+paths:
+  # Health check
+  /api/health:
+    get:
+      summary: API health check
+      description: Verify API is operational
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+
+  # Performance endpoints
+  /api/perf/dashboard:
+    get:
+      tags: [performance]
+      summary: Get multi-server health dashboard
+      description: Returns health metrics for all configured servers
+      responses:
+        '200':
+          description: Server metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServerMetrics'
+
+  /api/perf/servers/{server}/metrics:
+    get:
+      tags: [performance]
+      summary: Get detailed server metrics
+      description: Returns detailed metrics for a specific server
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Server hostname (e.g., boss-01)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Server metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerMetrics'
+        '404':
+          description: Server not found
+
+  /api/perf/summary:
+    get:
+      tags: [performance]
+      summary: Get aggregated metrics summary
+      description: Returns aggregated statistics across all servers
+      responses:
+        '200':
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PerformanceSummary'
+
+  # Network endpoints
+  /api/net/health:
+    get:
+      tags: [network]
+      summary: Get network health status
+      description: Returns UDM-SE system health for all subsystems
+      responses:
+        '200':
+          description: Network health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkHealth'
+
+  /api/net/networks:
+    get:
+      tags: [network]
+      summary: List network configurations
+      description: Returns all configured networks with VLAN and subnet information
+      responses:
+        '200':
+          description: Network list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  networks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Network'
+
+  /api/net/wifi:
+    get:
+      tags: [network]
+      summary: List WiFi networks
+      description: Returns all WLAN configurations
+      responses:
+        '200':
+          description: WiFi network list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wlans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WifiNetwork'
+
+  /api/net/devices:
+    get:
+      tags: [network]
+      summary: List network devices
+      description: Returns all network devices (APs, switches, gateway)
+      responses:
+        '200':
+          description: Device list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NetworkDevice'
+
+  /api/net/clients:
+    get:
+      tags: [network]
+      summary: List active clients
+      description: Returns active network clients with bandwidth usage
+      parameters:
+        - name: top
+          in: query
+          description: Limit to top N clients
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: sortBy
+          in: query
+          description: Sort field
+          schema:
+            type: string
+            enum: [bandwidth, signal, name]
+            default: bandwidth
+      responses:
+        '200':
+          description: Client list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NetworkClient'
+                  total:
+                    type: integer
+
+  # Docker endpoints
+  /api/docker/containers:
+    get:
+      tags: [docker]
+      summary: List Docker containers
+      description: Returns all running containers across configured servers
+      parameters:
+        - name: server
+          in: query
+          description: Filter by specific server
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Container list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DockerContainer'
+                  total:
+                    type: integer
+
+  /api/docker/servers/{server}/health:
+    get:
+      tags: [docker]
+      summary: Docker health check
+      description: Check Docker daemon and compose file health on specific server
+      parameters:
+        - name: server
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerHealth'
+
+  # Cloudflare endpoints
+  /api/cloudflare/hostnames:
+    get:
+      tags: [cloudflare]
+      summary: List tunnel hostnames
+      description: Returns all configured Cloudflare tunnel hostnames
+      parameters:
+        - name: domain
+          in: query
+          description: Domain to query
+          schema:
+            type: string
+            enum: [haymoed, ramcyber]
+            default: haymoed
+      responses:
+        '200':
+          description: Hostname list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hostnames:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CloudflareHostname'
+
+  /api/cloudflare/validate:
+    get:
+      tags: [cloudflare]
+      summary: Validate tunnel configuration
+      description: Validates Cloudflare tunnel configuration integrity
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+            enum: [haymoed, ramcyber]
+            default: haymoed
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: string
+
+  # Pterodactyl endpoints
+  /api/pterodactyl/nodes:
+    get:
+      tags: [pterodactyl]
+      summary: List game server nodes
+      description: Returns all configured Pterodactyl wings (nodes)
+      responses:
+        '200':
+          description: Node list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PterodactylNode'
+
+  /api/pterodactyl/diagnose:
+    get:
+      tags: [pterodactyl]
+      summary: Diagnose tunnel configuration
+      description: Detect common issues like hollow hearts
+      responses:
+        '200':
+          description: Diagnosis results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PterodactylDiagnosis'
+
+components:
+  schemas:
+    ServerMetrics:
+      type: object
+      properties:
+        server:
+          type: string
+          example: boss-01
+        status:
+          type: string
+          enum: [healthy, warning, critical, unreachable]
+          example: healthy
+        reachable:
+          type: boolean
+        source:
+          type: string
+          enum: [node_exporter, ssh]
+          example: node_exporter
+        cpu_load:
+          type: object
+          properties:
+            1min:
+              type: number
+              format: float
+            5min:
+              type: number
+              format: float
+            15min:
+              type: number
+              format: float
+        memory:
+          type: object
+          properties:
+            total_gb:
+              type: number
+              format: float
+            used_gb:
+              type: number
+              format: float
+            available_gb:
+              type: number
+              format: float
+            used_percent:
+              type: number
+              format: float
+        disk:
+          type: object
+          properties:
+            total_gb:
+              type: number
+              format: float
+            used_gb:
+              type: number
+              format: float
+            available_gb:
+              type: number
+              format: float
+            used_percent:
+              type: number
+              format: float
+
+    PerformanceSummary:
+      type: object
+      properties:
+        total_servers:
+          type: integer
+        reachable:
+          type: integer
+        healthy:
+          type: integer
+        warning:
+          type: integer
+        critical:
+          type: integer
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServerMetrics'
+
+    NetworkHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy, unknown]
+        subsystems:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+              num_adopted:
+                type: integer
+              num_disconnected:
+                type: integer
+              num_disabled:
+                type: integer
+
+    Network:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        purpose:
+          type: string
+        vlan:
+          type: integer
+        ip_subnet:
+          type: string
+        gateway:
+          type: string
+        dhcp_enabled:
+          type: boolean
+
+    WifiNetwork:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        security:
+          type: string
+        is_guest:
+          type: boolean
+        minrate_ng_enabled:
+          type: boolean
+        minrate_ng_data_rate_kbps:
+          type: integer
+        minrate_na_enabled:
+          type: boolean
+        minrate_na_data_rate_kbps:
+          type: integer
+
+    NetworkDevice:
+      type: object
+      properties:
+        id:
+          type: string
+        mac:
+          type: string
+        name:
+          type: string
+        model:
+          type: string
+        type:
+          type: string
+        ip:
+          type: string
+        state:
+          type: integer
+        adopted:
+          type: boolean
+        num_sta:
+          type: integer
+
+    NetworkClient:
+      type: object
+      properties:
+        mac:
+          type: string
+        hostname:
+          type: string
+        ip:
+          type: string
+        is_wired:
+          type: boolean
+        is_guest:
+          type: boolean
+        essid:
+          type: string
+        signal:
+          type: integer
+        tx_bytes:
+          type: integer
+        rx_bytes:
+          type: integer
+        total_bytes:
+          type: integer
+
+    DockerContainer:
+      type: object
+      properties:
+        Server:
+          type: string
+        ID:
+          type: string
+        Names:
+          type: string
+        Image:
+          type: string
+        Status:
+          type: string
+        Ports:
+          type: string
+
+    DockerHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        checks:
+          type: object
+          properties:
+            docker_running:
+              type: boolean
+            compose_file_exists:
+              type: boolean
+            compose_file_valid:
+              type: boolean
+
+    CloudflareHostname:
+      type: object
+      properties:
+        hostname:
+          type: string
+        service:
+          type: string
+
+    PterodactylNode:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        fqdn:
+          type: string
+        scheme:
+          type: string
+        daemon_listen:
+          type: integer
+        memory:
+          type: integer
+        disk:
+          type: integer
+        is_expected:
+          type: boolean
+
+    PterodactylDiagnosis:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, issues_found, error]
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              node:
+                type: string
+              issue:
+                type: string
+              current:
+                type: string
+              expected:
+                type: string
+              impact:
+                type: string
+              fix:
+                type: string

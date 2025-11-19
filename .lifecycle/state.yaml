@@ -1,7 +1,24 @@
 project_name: infrastructure-toolkit
 version: 1.0.0
 ai_workflow_enabled: true
-components: {}
+components:
+  core:
+    areas:
+      backend:
+        path: core/backend
+        framework: python-cli
+        status: active
+        created_at: '2025-11-19T13:42:00+00:00'
+      specs:
+        path: core/specs
+        framework: openapi
+        status: active
+        created_at: '2025-11-19T13:43:00+00:00'
+      frontend:
+        path: core/frontend
+        framework: react-vite
+        status: active
+        created_at: '2025-11-19T16:45:00+00:00'
 branches:
   main: main
   develop: develop
