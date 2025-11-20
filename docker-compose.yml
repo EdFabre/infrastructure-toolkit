@@ -1,0 +1,52 @@
+---
+version: "3.7"
+
+services:
+  backend:
+    image: infra-toolkit-backend:latest
+    container_name: infra-toolkit-backend
+    environment:
+      - TZ=America/New_York
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount config
+      - /mnt/tank/faststorage/general/repo/ai-config/config.yaml:/app/config.yaml:ro
+      # Mount SSH keys for server access
+      - /root/.ssh:/root/.ssh:ro
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+    networks:
+      - infra-toolkit
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./core/frontend
+      dockerfile: Dockerfile.dev
+    container_name: infra-toolkit-frontend
+    environment:
+      - TZ=America/New_York
+      - NODE_ENV=development
+      - VITE_API_URL=http://192.168.1.10:8001
+    volumes:
+      # Mount source for hot reload
+      - ./core/frontend/src:/app/src:ro
+      - ./core/frontend/public:/app/public:ro
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - infra-toolkit
+
+networks:
+  infra-toolkit:
+    driver: bridge
