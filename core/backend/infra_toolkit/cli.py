@@ -17,11 +17,17 @@ from rich.table import Table
 from .base_tool import BaseTool
 from .tools.cloudflare import CloudflareTool
 from .tools.pterodactyl import PterodactylTool
+from .tools.performance import PerformanceTool
+from .tools.network import NetworkTool
+from .tools.docker import DockerTool
 
 
 # Tool registry
 AVAILABLE_TOOLS: Dict[str, Type[BaseTool]] = {
     "cloudflare": CloudflareTool,
+    "docker": DockerTool,
+    "network": NetworkTool,
+    "performance": PerformanceTool,
     "pterodactyl": PterodactylTool,
 }
 
