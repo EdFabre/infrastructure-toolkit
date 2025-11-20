@@ -1,11 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { usePerformanceDashboard, usePerformanceSummary } from '@/hooks/usePerformance';
+import { useMetricsWebSocket } from '@/hooks/useWebSocket';
 import { ServerCard } from '@/components/ServerCard';
-import { Server, AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
+import { MetricsChart } from '@/components/MetricsChart';
+import { AlertSystem } from '@/components/AlertSystem';
+import { Server, AlertCircle, CheckCircle, AlertTriangle, Activity } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { data: dashboard, isLoading, error } = usePerformanceDashboard();
   const { data: summary } = usePerformanceSummary();
+  const { metrics: liveMetrics, isConnected } = useMetricsWebSocket();
+  const [selectedMetric, setSelectedMetric] = useState<'cpu' | 'memory' | 'disk'>('memory');
+
+  // Use live metrics if available, otherwise fall back to HTTP polling
+  const servers = liveMetrics?.servers || dashboard?.servers || [];
 
   if (isLoading) {
     return (
@@ -39,12 +47,22 @@ export const Dashboard: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Infrastructure Dashboard
-          </h1>
-          <p className="text-slate-400">
-            Real-time monitoring across {dashboard?.servers.length || 0} servers
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">
+                Infrastructure Dashboard
+              </h1>
+              <p className="text-slate-400">
+                Real-time monitoring across {servers.length || 0} servers
+              </p>
+            </div>
+            {isConnected && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 text-green-400 rounded-full border border-green-500/50">
+                <Activity className="h-4 w-4 animate-pulse" />
+                <span className="text-sm font-medium">Live Updates</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Summary Stats */}
@@ -92,12 +110,41 @@ export const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Server Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {dashboard?.servers.map((server) => (
-            <ServerCard key={server.server} metrics={server} />
-          ))}
+        {/* Metrics Visualization */}
+        <div className="mb-8">
+          <div className="flex items-center gap-4 mb-4">
+            <h2 className="text-xl font-semibold text-white">Metrics Overview</h2>
+            <div className="flex gap-2">
+              {(['cpu', 'memory', 'disk'] as const).map((metric) => (
+                <button
+                  key={metric}
+                  onClick={() => setSelectedMetric(metric)}
+                  className={`px-4 py-2 rounded-md transition-colors ${
+                    selectedMetric === metric
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                  }`}
+                >
+                  {metric.charAt(0).toUpperCase() + metric.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <MetricsChart servers={servers} metric={selectedMetric} />
         </div>
+
+        {/* Server Grid */}
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4">Server Details</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {servers.map((server) => (
+              <ServerCard key={server.server} metrics={server} />
+            ))}
+          </div>
+        </div>
+
+        {/* Alert System */}
+        <AlertSystem servers={servers} />
       </div>
     </div>
   );
