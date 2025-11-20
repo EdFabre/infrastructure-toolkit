@@ -186,6 +186,32 @@ def execute_tool(args) -> int:
                 verbose=verbose,
                 no_verify=no_verify
             )
+        elif tool_name == "performance":
+            server = getattr(args, "server", None)
+            all_servers = getattr(args, "all_servers", False)
+            tool = tool_class(
+                server=server,
+                all_servers=all_servers,
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        elif tool_name == "network":
+            tool = tool_class(
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        elif tool_name == "docker":
+            server = getattr(args, "server", None)
+            all_servers = getattr(args, "all_servers", False)
+            tool = tool_class(
+                server=server,
+                all_servers=all_servers,
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
         else:
             # Generic initialization for future tools
             tool = tool_class(
@@ -201,7 +227,35 @@ def execute_tool(args) -> int:
             console.print(f"[bold red]Error:[/bold red] No subcommand specified")
             return 1
 
-        # Route to appropriate handler
+        # Route to appropriate handler based on tool
+        if tool_name == "cloudflare":
+            return _handle_cloudflare(tool, subcommand, args, dry_run, domain)
+        elif tool_name == "pterodactyl":
+            return _handle_pterodactyl(tool, subcommand, args)
+        elif tool_name == "performance":
+            return _handle_performance(tool, subcommand, args)
+        elif tool_name == "network":
+            return _handle_network(tool, subcommand, args)
+        elif tool_name == "docker":
+            return _handle_docker(tool, subcommand, args, dry_run)
+        else:
+            console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
+            return 1
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if verbose:
+            console.print_exception()
+        return 1
+
+
+def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) -> int:
+    """Handle Cloudflare tool subcommands."""
+    try:
         if subcommand == "list":
             hostnames = tool.list_hostnames()
 
@@ -336,8 +390,27 @@ def execute_tool(args) -> int:
                     console.print(f"\n[bold red]✗ Restore failed[/bold red]")
                     return 1
 
-        # Pterodactyl-specific commands
-        elif subcommand == "nodes":
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if args.verbose:
+            console.print_exception()
+        return 1
+
+
+def _handle_pterodactyl(tool, subcommand: str, args) -> int:
+    """Handle Pterodactyl tool subcommands."""
+    try:
+        if subcommand == "nodes":
             nodes = tool.list_nodes()
 
             table = Table(show_header=True, header_style="bold magenta")
@@ -458,6 +531,536 @@ def execute_tool(args) -> int:
 
             console.print(table)
             console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if args.verbose:
+            console.print_exception()
+        return 1
+
+
+def _handle_performance(tool, subcommand: str, args) -> int:
+    """Handle Performance tool subcommands."""
+    try:
+        if subcommand == "dashboard":
+            console.print("[bold cyan]Server Performance Dashboard[/bold cyan]\n")
+
+            metrics = tool.get_all_servers_metrics()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Server", style="cyan")
+            table.add_column("Status", style="white")
+            table.add_column("CPU Load (1m)", style="yellow")
+            table.add_column("Memory", style="blue")
+            table.add_column("Disk", style="green")
+
+            for server_metrics in metrics:
+                server = server_metrics.get("server", "N/A")
+                reachable = server_metrics.get("reachable", False)
+
+                if not reachable:
+                    status = "[red]✗ UNREACHABLE[/red]"
+                    table.add_row(server, status, "—", "—", "—")
+                    continue
+
+                # Status based on health
+                status_val = server_metrics.get("status", "unknown")
+                if status_val == "healthy":
+                    status = "[green]✓ HEALTHY[/green]"
+                elif status_val == "warning":
+                    status = "[yellow]⚠ WARNING[/yellow]"
+                elif status_val == "critical":
+                    status = "[red]✗ CRITICAL[/red]"
+                else:
+                    status = "[dim]UNKNOWN[/dim]"
+
+                # CPU Load
+                cpu_load = server_metrics.get("cpu_load", {})
+                cpu_1min = cpu_load.get("1min", 0)
+                cpu_str = f"{cpu_1min:.2f}"
+
+                # Memory
+                memory = server_metrics.get("memory", {})
+                mem_used_pct = memory.get("used_percent", 0)
+                mem_str = f"{mem_used_pct:.1f}%"
+
+                # Disk
+                disk = server_metrics.get("disk", {})
+                disk_used_pct = disk.get("used_percent", 0)
+                disk_str = f"{disk_used_pct:.1f}%"
+
+                table.add_row(server, status, cpu_str, mem_str, disk_str)
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "metrics":
+            server = args.server
+            console.print(f"[bold cyan]Detailed Metrics for {server}[/bold cyan]\n")
+
+            metrics = tool.get_server_metrics(server)
+
+            if not metrics.get("reachable"):
+                console.print(f"[bold red]✗ Server unreachable:[/bold red] {server}")
+                return 1
+
+            # Build table
+            table = Table(show_header=False)
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+
+            # CPU Load
+            if "cpu_load" in metrics:
+                cpu = metrics["cpu_load"]
+                table.add_row("CPU Load (1min)", f"{cpu.get('1min', 0):.2f}")
+                table.add_row("CPU Load (5min)", f"{cpu.get('5min', 0):.2f}")
+                table.add_row("CPU Load (15min)", f"{cpu.get('15min', 0):.2f}")
+
+            # Memory
+            if "memory" in metrics:
+                mem = metrics["memory"]
+                table.add_row("Memory Total", f"{mem.get('total_gb', 0):.1f} GB")
+                table.add_row("Memory Used", f"{mem.get('used_gb', 0):.1f} GB")
+                table.add_row("Memory Used %", f"{mem.get('used_percent', 0):.1f}%")
+
+            # Disk
+            if "disk" in metrics:
+                disk = metrics["disk"]
+                table.add_row("Disk Total", f"{disk.get('total_gb', 0):.1f} GB")
+                table.add_row("Disk Used", f"{disk.get('used_gb', 0):.1f} GB")
+                table.add_row("Disk Used %", f"{disk.get('used_percent', 0):.1f}%")
+
+            # Uptime
+            if "uptime" in metrics:
+                table.add_row("Uptime", metrics["uptime"])
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "summary":
+            console.print("[bold cyan]Performance Summary[/bold cyan]\n")
+
+            metrics = tool.get_all_servers_metrics()
+
+            total = len(metrics)
+            reachable = sum(1 for m in metrics if m.get("reachable"))
+            unreachable = total - reachable
+
+            healthy = sum(1 for m in metrics if m.get("status") == "healthy")
+            warning = sum(1 for m in metrics if m.get("status") == "warning")
+            critical = sum(1 for m in metrics if m.get("status") == "critical")
+
+            table = Table(show_header=False)
+            table.add_column("Metric", style="cyan")
+            table.add_column("Count", style="white")
+
+            table.add_row("Total Servers", str(total))
+            table.add_row("Reachable", f"[green]{reachable}[/green]")
+            table.add_row("Unreachable", f"[red]{unreachable}[/red]" if unreachable > 0 else "0")
+            table.add_row("", "")
+            table.add_row("Healthy", f"[green]{healthy}[/green]")
+            table.add_row("Warning", f"[yellow]{warning}[/yellow]" if warning > 0 else "0")
+            table.add_row("Critical", f"[red]{critical}[/red]" if critical > 0 else "0")
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "export":
+            import json
+            metrics = tool.get_all_servers_metrics()
+
+            # Format for export
+            export_format = getattr(args, "format", "json")
+
+            if export_format == "json":
+                output = json.dumps({"servers": metrics}, indent=2)
+                console.print(output)
+            elif export_format == "csv":
+                console.print("Server,Status,Reachable,CPU(1m),Memory%,Disk%")
+                for m in metrics:
+                    server = m.get("server", "N/A")
+                    status = m.get("status", "unknown")
+                    reachable = m.get("reachable", False)
+                    cpu = m.get("cpu_load", {}).get("1min", 0)
+                    mem = m.get("memory", {}).get("used_percent", 0)
+                    disk = m.get("disk", {}).get("used_percent", 0)
+                    console.print(f"{server},{status},{reachable},{cpu:.2f},{mem:.1f},{disk:.1f}")
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]Performance Monitoring Health Check[/bold cyan]\n")
+
+            # Test node_exporter connectivity
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Server", style="cyan")
+            table.add_column("node_exporter", style="white")
+            table.add_column("SSH", style="white")
+
+            for server_name in tool.server_list.keys():
+                # Try node_exporter
+                ne_status = "[green]✓[/green]"
+                try:
+                    data = tool._query_prometheus_exporter(server_name, 9100)
+                    if not data:
+                        ne_status = "[red]✗[/red]"
+                except:
+                    ne_status = "[red]✗[/red]"
+
+                # Try SSH
+                ssh_status = "[green]✓[/green]"
+                try:
+                    result = tool._execute_ssh_command(server_name, "echo test")
+                    if result.returncode != 0:
+                        ssh_status = "[red]✗[/red]"
+                except:
+                    ssh_status = "[red]✗[/red]"
+
+                table.add_row(server_name, ne_status, ssh_status)
+
+            console.print(table)
+            console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if args.verbose:
+            console.print_exception()
+        return 1
+
+
+def _handle_network(tool, subcommand: str, args) -> int:
+    """Handle Network tool subcommands."""
+    try:
+        if subcommand == "health":
+            console.print("[bold cyan]Network Health Status[/bold cyan]\n")
+
+            health = tool.get_system_health()
+
+            table = Table(show_header=False)
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+
+            table.add_row("CPU %", f"{health.get('cpu', 0):.1f}%")
+            table.add_row("Memory %", f"{health.get('mem', 0):.1f}%")
+            table.add_row("Uptime", health.get("uptime", "N/A"))
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "networks":
+            console.print("[bold cyan]Network Configurations[/bold cyan]\n")
+
+            networks = tool.get_networks()
+
+            if not networks:
+                console.print("[yellow]No networks found[/yellow]")
+                return 0
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Name", style="cyan")
+            table.add_column("Subnet", style="green")
+            table.add_column("VLAN", style="yellow")
+            table.add_column("Domain", style="white")
+
+            for net in networks:
+                table.add_row(
+                    net.get("name", "N/A"),
+                    net.get("ip_subnet", "N/A"),
+                    str(net.get("vlan", "N/A")),
+                    net.get("domain_name", "N/A")
+                )
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "wifi":
+            console.print("[bold cyan]WiFi Networks[/bold cyan]\n")
+
+            wlans = tool.get_wifi_networks()
+
+            if not wlans:
+                console.print("[yellow]No WiFi networks found[/yellow]")
+                return 0
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Name", style="cyan")
+            table.add_column("Enabled", style="white")
+            table.add_column("2.4GHz Rate", style="green")
+            table.add_column("5GHz Rate", style="green")
+
+            for wlan in wlans:
+                enabled = "[green]Yes[/green]" if wlan.get("enabled") else "[red]No[/red]"
+                ng_rate = wlan.get("minrate_ng_data_rate_kbps", 0) / 1000
+                na_rate = wlan.get("minrate_na_data_rate_kbps", 0) / 1000
+
+                table.add_row(
+                    wlan.get("name", "N/A"),
+                    enabled,
+                    f"{ng_rate:.0f} Mbps" if ng_rate > 0 else "N/A",
+                    f"{na_rate:.0f} Mbps" if na_rate > 0 else "N/A"
+                )
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "devices":
+            console.print("[bold cyan]Network Devices[/bold cyan]\n")
+
+            devices = tool.get_network_devices()
+
+            if not devices:
+                console.print("[yellow]No devices found[/yellow]")
+                return 0
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Name", style="cyan")
+            table.add_column("Type", style="white")
+            table.add_column("Model", style="green")
+            table.add_column("IP", style="yellow")
+            table.add_column("State", style="white")
+
+            for device in devices:
+                state = device.get("state", 0)
+                state_str = "[green]Connected[/green]" if state == 1 else "[red]Disconnected[/red]"
+
+                table.add_row(
+                    device.get("name", "N/A"),
+                    device.get("type", "N/A"),
+                    device.get("model", "N/A"),
+                    device.get("ip", "N/A"),
+                    state_str
+                )
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "clients":
+            console.print("[bold cyan]Active Clients[/bold cyan]\n")
+
+            clients = tool.get_active_clients()
+
+            if not clients:
+                console.print("[yellow]No active clients found[/yellow]")
+                return 0
+
+            # Sort options
+            sort_by = getattr(args, "sort", "name")
+            reverse = getattr(args, "reverse", False)
+            top_n = getattr(args, "top", None)
+
+            if sort_by == "name":
+                clients.sort(key=lambda c: c.get("hostname", ""), reverse=reverse)
+            elif sort_by == "ip":
+                clients.sort(key=lambda c: c.get("ip", ""), reverse=reverse)
+            elif sort_by == "rx":
+                clients.sort(key=lambda c: c.get("rx_bytes", 0), reverse=True if not reverse else False)
+            elif sort_by == "tx":
+                clients.sort(key=lambda c: c.get("tx_bytes", 0), reverse=True if not reverse else False)
+
+            if top_n:
+                clients = clients[:top_n]
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Hostname", style="cyan")
+            table.add_column("IP", style="green")
+            table.add_column("MAC", style="white")
+            table.add_column("RX", style="blue")
+            table.add_column("TX", style="yellow")
+
+            for client in clients:
+                rx_mb = client.get("rx_bytes", 0) / (1024 * 1024)
+                tx_mb = client.get("tx_bytes", 0) / (1024 * 1024)
+
+                table.add_row(
+                    client.get("hostname", "N/A"),
+                    client.get("ip", "N/A"),
+                    client.get("mac", "N/A"),
+                    f"{rx_mb:.1f} MB",
+                    f"{tx_mb:.1f} MB"
+                )
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]Network Tool Health Check[/bold cyan]\n")
+
+            # Test authentication
+            if tool._authenticate():
+                console.print("[green]✓ API authentication successful[/green]")
+            else:
+                console.print("[red]✗ API authentication failed[/red]")
+                return 1
+
+            # Test basic connectivity
+            try:
+                health = tool.get_system_health()
+                console.print("[green]✓ API connectivity working[/green]")
+            except Exception as e:
+                console.print(f"[red]✗ API connectivity failed: {e}[/red]")
+                return 1
+
+            console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if args.verbose:
+            console.print_exception()
+        return 1
+
+
+def _handle_docker(tool, subcommand: str, args, dry_run: bool) -> int:
+    """Handle Docker tool subcommands."""
+    try:
+        if subcommand == "list":
+            if tool.all_servers:
+                console.print("[bold cyan]Docker Containers (All Servers)[/bold cyan]\n")
+
+                all_containers = tool.get_all_servers_containers()
+
+                for server, containers in all_containers.items():
+                    console.print(f"\n[bold]{server}:[/bold]")
+
+                    if not containers:
+                        console.print("  [dim]No containers running[/dim]")
+                        continue
+
+                    table = Table(show_header=True, header_style="bold magenta")
+                    table.add_column("Name", style="cyan")
+                    table.add_column("Image", style="green")
+                    table.add_column("Status", style="white")
+                    table.add_column("State", style="yellow")
+
+                    for container in containers:
+                        # Handle both dict and string formats
+                        if isinstance(container, dict):
+                            name = container.get("Name", container.get("name", "N/A"))
+                            image = container.get("Image", container.get("image", "N/A"))
+                            status = container.get("Status", container.get("status", "N/A"))
+                            state = container.get("State", container.get("state", "unknown"))
+                        else:
+                            name = image = status = "N/A"
+                            state = "unknown"
+
+                        state_color = "[green]" if state == "running" else "[red]"
+                        state_str = f"{state_color}{state}[/{state_color.strip('[')}]"
+
+                        table.add_row(name, image, status, state_str)
+
+                    console.print(table)
+
+                console.print()
+
+            else:
+                server = tool.server
+                console.print(f"[bold cyan]Docker Containers on {server}[/bold cyan]\n")
+
+                containers = tool.get_running_services()
+
+                if not containers:
+                    console.print("[yellow]No containers running[/yellow]")
+                    return 0
+
+                table = Table(show_header=True, header_style="bold magenta")
+                table.add_column("Name", style="cyan")
+                table.add_column("Image", style="green")
+                table.add_column("Status", style="white")
+                table.add_column("State", style="yellow")
+
+                for container in containers:
+                    # Handle both dict and string formats
+                    if isinstance(container, dict):
+                        name = container.get("Name", container.get("name", "N/A"))
+                        image = container.get("Image", container.get("image", "N/A"))
+                        status = container.get("Status", container.get("status", "N/A"))
+                        state = container.get("State", container.get("state", "unknown"))
+                    else:
+                        name = image = status = "N/A"
+                        state = "unknown"
+
+                    state_color = "[green]" if state == "running" else "[red]"
+                    state_str = f"{state_color}{state}[/{state_color.strip('[')}]"
+
+                    table.add_row(name, image, status, state_str)
+
+                console.print(table)
+                console.print()
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]Docker Health Check[/bold cyan]\n")
+
+            health = tool.docker_health_check()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Check", style="cyan")
+            table.add_column("Status", style="white")
+
+            status = health.get("status", "unknown")
+            status_str = "[green]✓ HEALTHY[/green]" if status == "healthy" else "[red]✗ UNHEALTHY[/red]"
+
+            table.add_row("Docker Status", status_str)
+            table.add_row("Docker Installed", "[green]Yes[/green]" if health.get("docker_installed") else "[red]No[/red]")
+            table.add_row("Docker Running", "[green]Yes[/green]" if health.get("docker_running") else "[red]No[/red]")
+
+            if "containers" in health:
+                table.add_row("Containers Running", str(health["containers"].get("running", 0)))
+                table.add_row("Containers Total", str(health["containers"].get("total", 0)))
+
+            console.print(table)
+            console.print()
+
+            if status != "healthy" and "error" in health:
+                console.print(f"[red]Error: {health['error']}[/red]\n")
+                return 1
+
+        elif subcommand == "logs":
+            container = args.container
+            tail = getattr(args, "tail", 100)
+
+            console.print(f"[bold cyan]Logs for {container} (last {tail} lines)[/bold cyan]\n")
+
+            logs = tool.get_container_logs(container, tail=tail)
+
+            console.print(logs)
+
+        # Pass through other Docker-specific commands to the tool
+        elif subcommand in ["validate", "backups", "rollback", "deploy", "restart", "sync"]:
+            # These are existing DockerTool methods - call the tool method directly
+            method_name = subcommand.replace("-", "_")
+            if hasattr(tool, method_name):
+                result = getattr(tool, method_name)()
+                console.print(result)
+            else:
+                console.print(f"[bold red]Error:[/bold red] Method {method_name} not implemented")
+                return 1
 
         else:
             console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
