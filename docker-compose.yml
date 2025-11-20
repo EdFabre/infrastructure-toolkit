@@ -38,11 +38,11 @@ services:
       # Mount source for hot reload
       - ./core/frontend/src:/app/src:ro
       - ./core/frontend/public:/app/public:ro
+      - ./core/frontend/vite.config.ts:/app/vite.config.ts:ro
     ports:
       - "5173:5173"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     restart: unless-stopped
     networks:
       - infra-toolkit
