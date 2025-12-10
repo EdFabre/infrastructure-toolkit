@@ -17,6 +17,11 @@ dependencies = [
     "fastapi>=0.104.0",  # REST API framework
     "uvicorn[standard]>=0.24.0",  # ASGI server
     "websockets>=12.0",  # WebSocket support
+    "sqlalchemy>=2.0.0",  # Database ORM
+    "bcrypt>=4.0.0",  # Password hashing
+    "aiosmtplib>=3.0.0",  # Async SMTP client for email
+    "jinja2>=3.1.0",  # Template engine for email
+    "pydantic[email]>=2.0.0",  # Email validation for Pydantic
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

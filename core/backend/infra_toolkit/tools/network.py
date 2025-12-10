@@ -82,6 +82,7 @@ class NetworkTool(BaseTool):
 
         # Look for config in multiple locations
         config_paths = [
+            Path("/app/config.yaml"),  # Docker container mount
             Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml"),
             Path.home() / ".config" / "infrastructure-toolkit" / "config.yaml",
         ]

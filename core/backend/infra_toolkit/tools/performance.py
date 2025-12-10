@@ -16,17 +16,72 @@ import json
 import logging
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import yaml
 
 from ..base_tool import BaseTool
+from ..cache import TTLCache
 
 
 logger = logging.getLogger(__name__)
+
+# Module-level HTTP session with connection pooling
+_http_session = None
+
+# Module-level thread pool executor
+_thread_pool = None
+
+# Module-level cache
+_metrics_cache = None
+
+
+def get_http_session() -> requests.Session:
+    """Get or create shared HTTP session with connection pooling."""
+    global _http_session
+    if _http_session is None:
+        _http_session = requests.Session()
+
+        # Configure connection pooling and retries
+        retry_strategy = Retry(
+            total=2,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504]
+        )
+
+        adapter = HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=20,
+            max_retries=retry_strategy
+        )
+
+        _http_session.mount("http://", adapter)
+        _http_session.mount("https://", adapter)
+
+    return _http_session
+
+
+def get_thread_pool() -> ThreadPoolExecutor:
+    """Get or create shared thread pool executor."""
+    global _thread_pool
+    if _thread_pool is None:
+        # 20 workers: 9 servers × 2 endpoints (node_exporter + cAdvisor)
+        _thread_pool = ThreadPoolExecutor(max_workers=20, thread_name_prefix="perf-worker")
+    return _thread_pool
+
+
+def get_metrics_cache() -> TTLCache:
+    """Get or create shared metrics cache."""
+    global _metrics_cache
+    if _metrics_cache is None:
+        _metrics_cache = TTLCache(default_ttl=60)
+    return _metrics_cache
 
 
 class PerformanceTool(BaseTool):
@@ -93,6 +148,11 @@ class PerformanceTool(BaseTool):
         # Get thresholds
         self.thresholds = monitoring_config.get("thresholds", self.DEFAULT_THRESHOLDS)
 
+        # Use shared session, thread pool, and cache
+        self._session = get_http_session()
+        self._executor = get_thread_pool()
+        self._cache = get_metrics_cache()
+
         super().__init__(config, **kwargs)
 
     @classmethod
@@ -105,6 +165,7 @@ class PerformanceTool(BaseTool):
 
         # Look for config in multiple locations
         config_paths = [
+            Path("/app/config.yaml"),  # Docker container mount
             Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml"),
             Path.home() / ".config" / "infrastructure-toolkit" / "config.yaml",
         ]
@@ -188,7 +249,7 @@ class PerformanceTool(BaseTool):
         url = f"http://{server_ip}:{port}/metrics"
 
         try:
-            response = requests.get(url, timeout=5)
+            response = self._session.get(url, timeout=15)
             if response.status_code == 200:
                 return response.text
             else:
@@ -372,24 +433,166 @@ class PerformanceTool(BaseTool):
 
         return metrics
 
-    def get_server_metrics(self, server: str) -> Dict[str, Any]:
+    def _get_cadvisor_metrics(self, server: str) -> Optional[Dict[str, Any]]:
         """
-        Get comprehensive server metrics.
-
-        Tries node_exporter first, falls back to SSH if unavailable.
+        Get container metrics from cAdvisor.
 
         Args:
             server: Server hostname
 
         Returns:
+            Dictionary of container metrics or None if unavailable
+        """
+        cache_key = f"cadvisor:{server}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        metrics_text = self._query_prometheus_exporter(server, self.cadvisor_port)
+        if not metrics_text:
+            return None
+
+        container_metrics = self._parse_cadvisor_metrics(metrics_text)
+
+        # Cache for 60 seconds
+        self._cache.set(cache_key, container_metrics, ttl=60)
+
+        return container_metrics
+
+    def _parse_cadvisor_metrics(self, metrics_text: str) -> Dict[str, Any]:
+        """
+        Parse cAdvisor Prometheus metrics for container data.
+
+        Args:
+            metrics_text: Raw Prometheus metrics text
+
+        Returns:
+            Dictionary mapping container names to their metrics
+        """
+        containers = {}
+
+        # Parse metrics line by line
+        for line in metrics_text.split('\n'):
+            if line.startswith('#') or not line.strip():
+                continue
+
+            # Only process container-specific metrics
+            if not line.startswith('container_'):
+                continue
+
+            # Extract metric name (before the '{')
+            metric_name = line.split('{')[0] if '{' in line else line.split()[0]
+
+            # Only process metrics we care about
+            if metric_name not in [
+                'container_cpu_usage_seconds_total',
+                'container_memory_working_set_bytes',
+                'container_network_receive_bytes_total',
+                'container_network_transmit_bytes_total'
+            ]:
+                continue
+
+            # Extract container identifier from name or id
+            container_name = None
+
+            # Try name= label first (preferred)
+            name_match = re.search(r'name="([^"]+)"', line)
+            if name_match:
+                container_name = name_match.group(1)
+                # Remove leading slash
+                if container_name.startswith('/'):
+                    container_name = container_name[1:]
+            else:
+                # Fall back to id= label and extract container name from path
+                # Example: id="/docker/30e31666fd3d..." -> extract from Docker metadata
+                # For now, try to get from image= label
+                image_match = re.search(r'image="([^"]+)"', line)
+                if image_match and image_match.group(1):
+                    # Use image name as container identifier
+                    image_name = image_match.group(1)
+                    # Extract just the image name (e.g., "gcr.io/cadvisor/cadvisor:latest" -> "cadvisor")
+                    if '/' in image_name:
+                        container_name = image_name.split('/')[-1].split(':')[0]
+                    else:
+                        container_name = image_name.split(':')[0]
+
+            # Skip if we couldn't extract a name
+            if not container_name:
+                continue
+
+            # Skip root and system containers
+            if container_name in ('', 'docker', 'init.scope', 'system.slice', 'user.slice', '/'):
+                continue
+
+            # Extract value - it's the SECOND number on the line (first is the metric value, second is timestamp)
+            # Format: metric_name{labels} VALUE TIMESTAMP
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+
+            try:
+                # The value is the second-to-last element (before the timestamp)
+                value = float(parts[-2])
+            except (ValueError, IndexError):
+                continue
+
+            # Initialize container dict if needed
+            if container_name not in containers:
+                containers[container_name] = {}
+
+            # Store relevant metrics
+            if metric_name == 'container_cpu_usage_seconds_total':
+                containers[container_name]['cpu_seconds'] = value
+
+            elif metric_name == 'container_memory_working_set_bytes':
+                containers[container_name]['memory_bytes'] = value
+                containers[container_name]['memory_mb'] = round(value / (1024**2), 2)
+
+            elif metric_name == 'container_network_receive_bytes_total':
+                containers[container_name]['network_rx_bytes'] = value
+
+            elif metric_name == 'container_network_transmit_bytes_total':
+                containers[container_name]['network_tx_bytes'] = value
+
+        return containers
+
+    def get_server_metrics(self, server: str, include_containers: bool = True, use_cache: bool = True) -> Dict[str, Any]:
+        """
+        Get comprehensive server metrics.
+
+        Tries node_exporter first, falls back to SSH if unavailable.
+        Optionally includes cAdvisor container metrics.
+
+        Args:
+            server: Server hostname
+            include_containers: Include cAdvisor container metrics (default: True)
+            use_cache: Use cached results if available (default: True)
+
+        Returns:
             Dictionary of metrics
         """
+        # Check cache first
+        cache_key = f"metrics:{server}"
+        if use_cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
         # Try node_exporter first
         metrics = self._get_server_metrics_via_node_exporter(server)
 
         if not metrics.get("reachable"):
             logger.info(f"node_exporter unavailable for {server}, falling back to SSH")
             metrics = self._get_server_metrics_via_ssh(server)
+
+        # Add cAdvisor container metrics if requested
+        if include_containers:
+            container_metrics = self._get_cadvisor_metrics(server)
+            if container_metrics:
+                metrics["containers"] = container_metrics
+                metrics["cadvisor_available"] = True
+            else:
+                metrics["cadvisor_available"] = False
 
         # Add status based on thresholds
         if metrics.get("reachable"):
@@ -413,15 +616,37 @@ class PerformanceTool(BaseTool):
         else:
             metrics["status"] = "unreachable"
 
+        # Cache for 60 seconds
+        if use_cache:
+            self._cache.set(cache_key, metrics, ttl=60)
+
         return metrics
 
-    def get_all_servers_metrics(self) -> List[Dict[str, Any]]:
+    def get_all_servers_metrics(
+        self,
+        include_containers: bool = True,
+        use_cache: bool = True,
+        timeout: float = 20.0
+    ) -> List[Dict[str, Any]]:
         """
-        Get metrics from all configured servers.
+        Get metrics from all configured servers in parallel.
+
+        Args:
+            include_containers: Include cAdvisor container metrics (default: True)
+            use_cache: Use cached results if available (default: True)
+            timeout: Overall timeout for all queries (default: 20s)
 
         Returns:
             List of server metrics
         """
+        # Check cache first for aggregated results
+        cache_key = "all_servers_metrics"
+        if use_cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                logger.info("Returning cached metrics for all servers")
+                return cached
+
         all_metrics = []
 
         if isinstance(self.servers, dict):
@@ -429,10 +654,45 @@ class PerformanceTool(BaseTool):
         else:
             server_items = self.servers
 
-        for server in server_items:
-            logger.info(f"Querying metrics for {server}...")
-            metrics = self.get_server_metrics(server)
-            all_metrics.append(metrics)
+        logger.info(f"Querying metrics for {len(server_items)} servers in parallel...")
+
+        # Submit all server queries to thread pool
+        futures = {
+            self._executor.submit(
+                self.get_server_metrics,
+                server,
+                include_containers,
+                use_cache
+            ): server
+            for server in server_items
+        }
+
+        # Collect results as they complete
+        try:
+            for future in as_completed(futures, timeout=timeout):
+                server = futures[future]
+                try:
+                    metrics = future.result(timeout=15.0)
+                    all_metrics.append(metrics)
+                    logger.debug(f"✓ Collected metrics for {server}")
+                except Exception as e:
+                    logger.error(f"✗ Failed to get metrics for {server}: {e}")
+                    # Add error entry for failed server
+                    all_metrics.append({
+                        "server": server,
+                        "status": "timeout",
+                        "reachable": False,
+                        "error": str(e)
+                    })
+
+        except Exception as e:
+            logger.error(f"Overall timeout or error collecting metrics: {e}")
+
+        # Cache aggregated results
+        if use_cache and all_metrics:
+            self._cache.set(cache_key, all_metrics, ttl=60)
+
+        logger.info(f"Collected metrics from {len(all_metrics)}/{len(server_items)} servers")
 
         return all_metrics
 

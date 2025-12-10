@@ -22,12 +22,19 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   const connect = useCallback(() => {
     try {
       // Convert http/https to ws/wss
-      const wsUrl = url.replace(/^http/, 'ws');
+      // Use current host if URL is relative or localhost
+      let wsUrl = url;
+      if (url.startsWith('http://localhost') || url.startsWith('https://localhost')) {
+        // Replace localhost with current host
+        wsUrl = url.replace('http://localhost:8000', window.location.origin.replace(/^http/, 'ws'));
+      } else if (!url.startsWith('ws')) {
+        wsUrl = url.replace(/^http/, 'ws');
+      }
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -111,7 +118,10 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
 export function useMetricsWebSocket() {
   const [metrics, setMetrics] = useState<any>(null);
 
-  const { isConnected, send } = useWebSocket('http://localhost:8000/api/ws/metrics', {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/metrics`;
+
+  const { isConnected, send } = useWebSocket(wsUrl, {
     onMessage: (data) => {
       if (data.type === 'metrics') {
         setMetrics(data.data);
@@ -131,7 +141,10 @@ export function useLogsWebSocket(server: string) {
   const [logs, setLogs] = useState<string>('');
   const [containers, setContainers] = useState<any[]>([]);
 
-  const { isConnected, send } = useWebSocket(`http://localhost:8000/api/ws/logs/${server}`, {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/logs/${server}`;
+
+  const { isConnected, send } = useWebSocket(wsUrl, {
     onMessage: (data) => {
       if (data.type === 'logs') {
         setLogs(data.logs || data.message);
@@ -156,7 +169,10 @@ export function useLogsWebSocket(server: string) {
 export function useNetworkWebSocket() {
   const [networkData, setNetworkData] = useState<any>(null);
 
-  const { isConnected, send } = useWebSocket('http://localhost:8000/api/ws/network', {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${wsProtocol}//${window.location.host}/api/ws/network`;
+
+  const { isConnected, send } = useWebSocket(wsUrl, {
     onMessage: (data) => {
       if (data.type === 'network') {
         setNetworkData(data.data);

@@ -47,7 +47,7 @@ export const Pterodactyl: React.FC = () => {
   }
 
   const totalMemory = nodes.reduce((acc, node) => acc + (node.memory || 0), 0);
-  const totalDisk = nodes.reduce((acc, node) => acc + (node.disk || 0), 0);
+  // const totalDisk = nodes.reduce((acc, node) => acc + (node.disk || 0), 0);
   const allocatedMemory = nodes.reduce((acc, node) => acc + (node.allocated_memory || 0), 0);
 
   return (

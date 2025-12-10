@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNetworkHealth, useNetworks, useWifiNetworks, useNetworkDevices, useNetworkClients } from '@/hooks/useNetwork';
 import { StatusBadge } from '@/components/StatusBadge';
+import { ResponsiveTabs } from '@/components/ResponsiveTabs';
 import { Wifi, Network as NetworkIcon, Users, Activity, Signal, Globe } from 'lucide-react';
 
 export const Network: React.FC = () => {
@@ -52,33 +53,22 @@ export const Network: React.FC = () => {
                   <p className="text-sm text-slate-400">UDM SE Status</p>
                 </div>
               </div>
-              <StatusBadge status={health.status} />
+              <StatusBadge status={health.status as any} />
             </div>
           </div>
         )}
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 mb-6">
-          {[
+        <ResponsiveTabs
+          tabs={[
             { id: 'overview', label: 'Overview', icon: NetworkIcon },
             { id: 'wifi', label: 'WiFi Networks', icon: Wifi },
             { id: 'devices', label: 'Devices', icon: Activity },
             { id: 'clients', label: 'Active Clients', icon: Users },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setSelectedTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                selectedTab === tab.id
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-              }`}
-            >
-              <tab.icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
+          ]}
+          activeTab={selectedTab}
+          onChange={(id) => setSelectedTab(id as 'overview' | 'wifi' | 'devices' | 'clients')}
+        />
 
         {/* Content */}
         {selectedTab === 'overview' && (

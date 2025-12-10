@@ -20,14 +20,18 @@ from .tools.pterodactyl import PterodactylTool
 from .tools.performance import PerformanceTool
 from .tools.network import NetworkTool
 from .tools.docker import DockerTool
+from .tools.nas import NASTool
+from .tools.proxmox import ProxmoxTool
 
 
 # Tool registry
 AVAILABLE_TOOLS: Dict[str, Type[BaseTool]] = {
     "cloudflare": CloudflareTool,
     "docker": DockerTool,
+    "nas": NASTool,
     "network": NetworkTool,
     "performance": PerformanceTool,
+    "proxmox": ProxmoxTool,
     "pterodactyl": PterodactylTool,
 }
 
@@ -212,6 +216,16 @@ def execute_tool(args) -> int:
                 verbose=verbose,
                 no_verify=no_verify
             )
+        elif tool_name == "nas":
+            tool = tool_class()
+        elif tool_name == "proxmox":
+            host = getattr(args, "host", "pve3")
+            tool = tool_class(
+                host=host,
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
         else:
             # Generic initialization for future tools
             tool = tool_class(
@@ -238,6 +252,10 @@ def execute_tool(args) -> int:
             return _handle_network(tool, subcommand, args)
         elif tool_name == "docker":
             return _handle_docker(tool, subcommand, args, dry_run)
+        elif tool_name == "nas":
+            return _handle_nas(tool, subcommand, args, dry_run)
+        elif tool_name == "proxmox":
+            return _handle_proxmox(tool, subcommand, args, dry_run)
         else:
             console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
             return 1
@@ -1075,6 +1093,325 @@ def _handle_docker(tool, subcommand: str, args, dry_run: bool) -> int:
     except Exception as e:
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         if args.verbose:
+            console.print_exception()
+        return 1
+
+
+def _handle_nas(tool, subcommand: str, args, dry_run: bool) -> int:
+    """Handle NAS tool subcommands."""
+    try:
+        if subcommand == "list":
+            console.print("[bold cyan]NAS Systems[/bold cyan]\n")
+
+            systems = tool.get_all_nas_metrics()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Name", style="cyan")
+            table.add_column("Type", style="white")
+            table.add_column("IP", style="green")
+            table.add_column("Status", style="white")
+            table.add_column("Purpose", style="yellow")
+
+            for system in systems:
+                status = system.get("status", "unknown")
+                if status == "healthy":
+                    status_str = "[green]✓ HEALTHY[/green]"
+                elif status == "degraded":
+                    status_str = "[yellow]⚠ DEGRADED[/yellow]"
+                elif status == "unreachable":
+                    status_str = "[red]✗ UNREACHABLE[/red]"
+                else:
+                    status_str = "[dim]UNKNOWN[/dim]"
+
+                table.add_row(
+                    system.get("name", "N/A"),
+                    system.get("type", "N/A").upper(),
+                    system.get("ip", "N/A"),
+                    status_str,
+                    system.get("purpose", "N/A")
+                )
+
+            console.print(table)
+
+            # Show issues if any
+            for system in systems:
+                if system.get("issues"):
+                    console.print(f"\n[yellow]⚠ {system.get('name')}:[/yellow] {system.get('issues')}")
+
+            console.print()
+
+        elif subcommand == "metrics":
+            system_id = args.system
+            console.print(f"[bold cyan]NAS Metrics: {system_id}[/bold cyan]\n")
+
+            all_systems = tool.get_all_nas_metrics()
+            system = next((s for s in all_systems if s.get("system_id") == system_id), None)
+
+            if not system:
+                console.print(f"[bold red]Error:[/bold red] NAS system not found: {system_id}")
+                return 1
+
+            if not system.get("reachable"):
+                console.print(f"[bold red]✗ System unreachable:[/bold red] {system.get('name')}")
+                return 1
+
+            table = Table(show_header=False)
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+
+            # Common metrics
+            table.add_row("Name", system.get("name", "N/A"))
+            table.add_row("Type", system.get("type", "N/A").upper())
+            table.add_row("IP Address", system.get("ip", "N/A"))
+            table.add_row("Purpose", system.get("purpose", "N/A"))
+            table.add_row("Status", system.get("status", "unknown").upper())
+
+            # Storage
+            if "storage" in system:
+                storage = system["storage"]
+                table.add_row("", "")  # Spacer
+                table.add_row("[bold]Storage[/bold]", "")
+                table.add_row("Total", storage.get("total", "N/A"))
+                table.add_row("Used", storage.get("used", "N/A"))
+                table.add_row("Available", storage.get("available", "N/A"))
+                table.add_row("Used %", f"{storage.get('used_percent', 0)}%")
+
+            # Memory
+            if "memory" in system:
+                memory = system["memory"]
+                table.add_row("", "")  # Spacer
+                table.add_row("[bold]Memory[/bold]", "")
+                if "total" in memory:
+                    table.add_row("Total", memory.get("total", "N/A"))
+                    table.add_row("Used", memory.get("used", "N/A"))
+                elif "total_gb" in memory:
+                    table.add_row("Total", f"{memory.get('total_gb', 0):.1f} GB")
+
+            # Uptime & Load
+            if "uptime" in system:
+                table.add_row("", "")  # Spacer
+                table.add_row("[bold]System[/bold]", "")
+                table.add_row("Uptime", system["uptime"])
+
+            if "load" in system:
+                load = system["load"]
+                table.add_row("Load (1m)", f"{load.get('1min', 0):.2f}")
+                table.add_row("Load (5m)", f"{load.get('5min', 0):.2f}")
+                table.add_row("Load (15m)", f"{load.get('15min', 0):.2f}")
+
+            # Type-specific metrics
+            if system.get("type") == "unraid" and "array" in system:
+                array = system["array"]
+                table.add_row("", "")  # Spacer
+                table.add_row("[bold]Array Status[/bold]", "")
+                for key, value in array.items():
+                    table.add_row(key, value)
+
+            if system.get("type") == "truenas" and "pools" in system:
+                pools = system["pools"]
+                table.add_row("", "")  # Spacer
+                table.add_row("[bold]ZFS Pools[/bold]", "")
+                for pool in pools:
+                    health_color = "[green]" if pool["health"] == "ONLINE" else "[yellow]"
+                    table.add_row(
+                        f"  {pool['name']}",
+                        f"{pool['size']} ({pool['cap']} used) - {health_color}{pool['health']}[/{health_color.strip('[')}]"
+                    )
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]NAS Health Check[/bold cyan]\n")
+
+            health = tool.health_check()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("System", style="cyan")
+            table.add_column("Reachable", style="white")
+            table.add_column("Status", style="white")
+
+            for system_id, check in health["checks"].items():
+                reachable_str = "[green]✓[/green]" if check["reachable"] else "[red]✗[/red]"
+
+                status = check["status"]
+                if status == "healthy":
+                    status_str = "[green]HEALTHY[/green]"
+                elif status == "degraded":
+                    status_str = "[yellow]DEGRADED[/yellow]"
+                else:
+                    status_str = "[red]UNREACHABLE[/red]"
+
+                table.add_row(system_id, reachable_str, status_str)
+
+            console.print(table)
+            console.print(f"\n{health['message']}\n")
+
+            if health["status"] != "healthy":
+                return 1
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if getattr(args, "verbose", False):
+            console.print_exception()
+        return 1
+
+
+def _handle_proxmox(tool, subcommand: str, args, dry_run: bool) -> int:
+    """Handle Proxmox tool subcommands."""
+    try:
+        if subcommand == "health-check":
+            console.print("[bold cyan]Proxmox Tool Health Check[/bold cyan]\n")
+
+            health = tool.health_check()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Check", style="cyan")
+            table.add_column("Status", style="white")
+
+            for check_name, check_value in health["checks"].items():
+                if isinstance(check_value, bool):
+                    status_str = "[green]✓ PASS[/green]" if check_value else "[red]✗ FAIL[/red]"
+                else:
+                    status_str = str(check_value)
+                table.add_row(check_name, status_str)
+
+            console.print(table)
+
+            status = health["status"]
+            if status == "healthy":
+                console.print(f"\n[bold green]✓ All checks passed[/bold green]")
+            else:
+                console.print(f"\n[bold red]✗ Health check failed[/bold red]")
+                return 1
+
+        elif subcommand == "usb-status":
+            vm_id = args.vm_id
+            console.print(f"[bold cyan]USB Status for VM {vm_id}[/bold cyan]\n")
+
+            health = tool.check_usb_health(vm_id)
+
+            # Summary
+            status = health["status"]
+            if status == "healthy":
+                console.print(f"[bold green]✓ All {health['total_devices']} USB devices healthy[/bold green]\n")
+            else:
+                console.print(f"[bold yellow]⚠ {health['unhealthy_devices']} unhealthy device(s)[/bold yellow]\n")
+
+            # Device table
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Device ID", style="cyan")
+            table.add_column("Product", style="white")
+            table.add_column("Speed", style="green")
+            table.add_column("Port", style="yellow")
+            table.add_column("Status", style="white")
+
+            for device in health["devices"]:
+                is_healthy = device.get("is_healthy", True)
+                status_str = "[green]✓ OK[/green]" if is_healthy else "[red]✗ UNHEALTHY[/red]"
+
+                table.add_row(
+                    device.get("device_id", "N/A"),
+                    device.get("product_name", "N/A"),
+                    device.get("speed", "N/A"),
+                    str(device.get("port", "N/A")),
+                    status_str
+                )
+
+            console.print(table)
+
+            # Show issues if any
+            if health["issues"]:
+                console.print("\n[bold yellow]Issues:[/bold yellow]")
+                for issue in health["issues"]:
+                    console.print(f"  • {issue['device_id']}: {issue['issue']}")
+                console.print(f"\n[cyan]Run 'infra-toolkit proxmox usb-auto-fix {vm_id}' to attempt auto-repair[/cyan]")
+
+            console.print()
+
+        elif subcommand == "usb-reset":
+            vm_id = args.vm_id
+            device_id = args.device_id
+
+            if dry_run:
+                console.print(f"[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
+
+            console.print(f"[bold cyan]Resetting USB device {device_id} on VM {vm_id}[/bold cyan]\n")
+
+            success = tool.reset_usb_device(vm_id, device_id)
+
+            if success:
+                console.print(f"\n[bold green]✓ USB device {device_id} reset successfully[/bold green]")
+
+                # Show new status
+                console.print("\n[bold cyan]New USB Status:[/bold cyan]")
+                health = tool.check_usb_health(vm_id)
+                for device in health["devices"]:
+                    if device["device_id"] == device_id:
+                        is_healthy = device.get("is_healthy", True)
+                        status_str = "[green]✓ OK[/green]" if is_healthy else "[red]✗ UNHEALTHY[/red]"
+                        console.print(f"  {device_id}: {device['product_name']} @ {device['speed']} - {status_str}")
+            else:
+                console.print(f"\n[bold red]✗ Failed to reset USB device[/bold red]")
+                return 1
+
+        elif subcommand == "usb-auto-fix":
+            vm_id = args.vm_id
+
+            if dry_run:
+                console.print(f"[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
+
+            console.print(f"[bold cyan]Auto-fixing USB devices on VM {vm_id}[/bold cyan]\n")
+
+            result = tool.auto_fix_usb(vm_id)
+
+            status = result["status"]
+
+            if status == "no_action_needed":
+                console.print(f"[bold green]✓ {result['message']}[/bold green]")
+                console.print(f"  Devices checked: {result['devices_checked']}")
+            elif status == "fixed":
+                console.print(f"[bold green]✓ All devices fixed![/bold green]")
+                console.print(f"  Fixed: {', '.join(result['fixed_devices'])}")
+            elif status == "partial":
+                console.print(f"[bold yellow]⚠ Partial fix[/bold yellow]")
+                console.print(f"  Fixed: {', '.join(result['fixed_devices'])}")
+                console.print(f"  Failed: {', '.join(result['failed_devices'])}")
+                return 1
+
+            # Show final status
+            if "new_health" in result:
+                console.print("\n[bold cyan]Final USB Status:[/bold cyan]")
+                for device in result["new_health"]["devices"]:
+                    is_healthy = device.get("is_healthy", True)
+                    status_str = "[green]✓[/green]" if is_healthy else "[red]✗[/red]"
+                    console.print(f"  {status_str} {device['device_id']}: {device['product_name']} @ {device['speed']}")
+
+            console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if getattr(args, "verbose", False):
             console.print_exception()
         return 1
 

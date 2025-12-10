@@ -1,32 +1,77 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useDockerContainers } from '@/hooks/useDocker';
+import { usePerformanceDashboard } from '@/hooks/usePerformance';
 import { StatusBadge } from '@/components/StatusBadge';
-import { Container, Server, Play, Square, AlertCircle } from 'lucide-react';
+import { Container, Server, Play, Square, AlertCircle, Cpu, MemoryStick, Network } from 'lucide-react';
 
 const SERVERS = [
   'boss-01', 'boss-02', 'boss-03', 'boss-04', 'boss-05',
   'boss-06', 'boss-07', 'king-01'
 ];
 
+// Helper function to format bytes to human-readable format
+function formatBytes(bytes?: number): string {
+  if (bytes === undefined || bytes === null) return 'N/A';
+  if (bytes === 0) return '0 B';
+
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
 export const Docker: React.FC = () => {
   const [selectedServer, setSelectedServer] = useState<string>('all');
-  const { data: containersData, isLoading, error } = useDockerContainers(
+  const { data: containersData, isLoading: loadingContainers, error: containerError } = useDockerContainers(
     selectedServer === 'all' ? undefined : selectedServer
   );
+  const { data: performanceData, isLoading: loadingPerformance } = usePerformanceDashboard();
+
+  const isLoading = loadingContainers || loadingPerformance;
+  const error = containerError;
 
   const containers = containersData?.containers || [];
   const total = containersData?.total || 0;
 
+  // Merge container resource metrics from cAdvisor
+  const containersWithMetrics = useMemo(() => {
+    if (!performanceData?.servers) return containers;
+
+    return containers.map((container) => {
+      // Find the server's performance data
+      const serverPerf = performanceData.servers.find((s: any) => s.server === container.server);
+
+      if (!serverPerf?.containers) return container;
+
+      // Find the container's metrics in cAdvisor data
+      const containerMetrics = serverPerf.containers[container.name];
+
+      if (!containerMetrics) return container;
+
+      // Merge metrics into container object
+      return {
+        ...container,
+        metrics: {
+          cpu_seconds: containerMetrics.cpu_seconds,
+          memory_mb: containerMetrics.memory_mb,
+          network_rx_bytes: containerMetrics.network_rx_bytes,
+          network_tx_bytes: containerMetrics.network_tx_bytes,
+        },
+      };
+    });
+  }, [containers, performanceData]);
+
   // Group containers by server
-  const containersByServer = containers.reduce((acc, container) => {
+  const containersByServer = containersWithMetrics.reduce((acc, container) => {
     const server = container.server || 'unknown';
     if (!acc[server]) acc[server] = [];
     acc[server].push(container);
     return acc;
-  }, {} as Record<string, typeof containers>);
+  }, {} as Record<string, typeof containersWithMetrics>);
 
-  const runningCount = containers.filter(c => c.status === 'running').length;
-  const stoppedCount = containers.filter(c => c.status !== 'running').length;
+  const runningCount = containersWithMetrics.filter(c => c.state === 'running').length;
+  const stoppedCount = containersWithMetrics.filter(c => c.state !== 'running').length;
 
   if (isLoading) {
     return (
@@ -158,14 +203,14 @@ export const Docker: React.FC = () => {
                         </p>
                       </div>
                       <StatusBadge
-                        status={container.status === 'running' ? 'healthy' : 'critical'}
+                        status={container.state === 'running' ? 'healthy' : 'critical'}
                       />
                     </div>
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between">
                         <span className="text-slate-400">Status:</span>
                         <span className={`font-medium ${
-                          container.status === 'running' ? 'text-green-400' : 'text-red-400'
+                          container.state === 'running' ? 'text-green-400' : 'text-red-400'
                         }`}>
                           {container.status}
                         </span>
@@ -186,6 +231,48 @@ export const Docker: React.FC = () => {
                           </span>
                         </div>
                       )}
+
+                      {/* Container Resource Metrics */}
+                      {container.metrics && (
+                        <>
+                          <div className="border-t border-slate-600 my-2 pt-2">
+                            <p className="text-slate-500 font-medium mb-1">Resources</p>
+                          </div>
+                          {container.metrics.memory_mb !== undefined && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <MemoryStick className="h-3 w-3" />
+                                Memory:
+                              </span>
+                              <span className="text-blue-400 font-medium">
+                                {container.metrics.memory_mb.toFixed(0)} MB
+                              </span>
+                            </div>
+                          )}
+                          {container.metrics.cpu_seconds !== undefined && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Cpu className="h-3 w-3" />
+                                CPU Time:
+                              </span>
+                              <span className="text-yellow-400 font-medium">
+                                {(container.metrics.cpu_seconds / 3600).toFixed(1)}h
+                              </span>
+                            </div>
+                          )}
+                          {(container.metrics.network_rx_bytes !== undefined || container.metrics.network_tx_bytes !== undefined) && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Network className="h-3 w-3" />
+                                Network:
+                              </span>
+                              <span className="text-green-400 font-medium">
+                                ↓ {formatBytes(container.metrics.network_rx_bytes)} / ↑ {formatBytes(container.metrics.network_tx_bytes)}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -194,7 +281,7 @@ export const Docker: React.FC = () => {
           ))}
         </div>
 
-        {containers.length === 0 && (
+        {containersWithMetrics.length === 0 && (
           <div className="card text-center py-12">
             <Container className="h-16 w-16 text-slate-600 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-white mb-2">No Containers Found</h3>

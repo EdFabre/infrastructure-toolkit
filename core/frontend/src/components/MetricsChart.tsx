@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { ServerMetrics } from '@/types/api';
 
 interface MetricsChartProps {
@@ -69,7 +69,7 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({ servers, metric }) =
     }
   };
 
-  const getYAxisDomain = () => {
+  const getYAxisDomain = (): [number, number | 'auto'] => {
     if (metric === 'cpu') {
       return [0, 'auto'];
     }

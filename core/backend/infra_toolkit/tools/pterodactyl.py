@@ -96,13 +96,23 @@ class PterodactylTool(BaseTool):
         """
         import yaml
 
-        config_path = Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml")
+        # Look for config in multiple locations
+        config_paths = [
+            Path("/app/config.yaml"),  # Docker container mount
+            Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml"),
+            Path.home() / ".config" / "infrastructure-toolkit" / "config.yaml",
+        ]
 
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration not found: {config_path}")
+        for config_path in config_paths:
+            if config_path.exists():
+                logger.debug(f"Loading config from: {config_path}")
+                with open(config_path, 'r') as f:
+                    return yaml.safe_load(f)
 
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+        raise FileNotFoundError(
+            f"Configuration not found. "
+            f"Checked: {', '.join(str(p) for p in config_paths)}"
+        )
 
     def validate_config(self) -> bool:
         """Validate Pterodactyl configuration."""
@@ -197,6 +207,9 @@ class PterodactylTool(BaseTool):
                 is_expected = fqdn in self.expected_nodes
                 expected_config = self.expected_nodes.get(fqdn, {})
 
+                # Extract allocation data from allocated_resources
+                allocated_resources = attrs.get("allocated_resources", {})
+
                 node_info = {
                     "id": attrs.get("id"),
                     "name": attrs.get("name"),
@@ -206,6 +219,8 @@ class PterodactylTool(BaseTool):
                     "daemon_sftp": attrs.get("daemon_sftp", 2022),
                     "memory": attrs.get("memory", 0),
                     "disk": attrs.get("disk", 0),
+                    "allocated_memory": allocated_resources.get("memory", 0),
+                    "allocated_disk": allocated_resources.get("disk", 0),
                     "daemon_base": attrs.get("daemon_base"),
                     "is_expected": is_expected,
                     "expected_config": expected_config if is_expected else None
@@ -299,27 +314,27 @@ class PterodactylTool(BaseTool):
                 expected_port = expected_config.get("port", 48080)
                 expected_scheme = expected_config.get("protocol", "http")
 
-                # Check scheme mismatch (common issue)
+                # Check scheme mismatch (panel database vs expected)
                 if node.get("scheme") == "https" and expected_scheme == "http":
-                    diagnosis["issues"].append({
+                    diagnosis["warnings"].append({
                         "node": fqdn,
-                        "issue": "Scheme mismatch",
+                        "issue": "Panel database scheme mismatch",
                         "current": "https",
                         "expected": "http",
-                        "impact": "Browser heartbeat will fail (hollow hearts)",
-                        "fix": f"Update Cloudflare tunnel to point {fqdn} → http://{expected_config.get('ip')}:{expected_port}"
+                        "impact": "Cosmetic only - if hearts are working, tunnel config is correct",
+                        "fix": f"Update panel database: scheme=http (if needed for accuracy)"
                     })
 
-                # Check port mismatch
+                # Check port mismatch (panel database vs expected)
                 daemon_listen = node.get("daemon_listen", 8080)
                 if daemon_listen == 443 and expected_port == 48080:
-                    diagnosis["issues"].append({
+                    diagnosis["warnings"].append({
                         "node": fqdn,
-                        "issue": "Port mismatch",
+                        "issue": "Panel database port mismatch",
                         "current": daemon_listen,
                         "expected": expected_port,
-                        "impact": "Wing unreachable via Cloudflare tunnel",
-                        "fix": f"Update panel database: daemon_listen={expected_port}"
+                        "impact": "Cosmetic only - actual Wings listening on correct port",
+                        "fix": f"Update panel database: daemon_listen={expected_port} (optional cleanup)"
                     })
 
             # Set overall status
@@ -330,6 +345,14 @@ class PterodactylTool(BaseTool):
                 )
                 diagnosis["recommendations"].append(
                     "Ensure games-node-*.haymoed.com points to http://192.168.1.{71,17}:48080"
+                )
+            elif diagnosis["warnings"]:
+                diagnosis["status"] = "warnings_found"
+                diagnosis["recommendations"].append(
+                    "Panel database values don't match actual configuration"
+                )
+                diagnosis["recommendations"].append(
+                    "If hearts are working, this is cosmetic only"
                 )
             else:
                 diagnosis["status"] = "healthy"

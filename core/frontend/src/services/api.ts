@@ -13,6 +13,10 @@ import type {
   CloudflareValidation,
   PterodactylNode,
   PterodactylDiagnosis,
+  USBHealthStatus,
+  USBResetResponse,
+  USBAutoFixResponse,
+  ProxmoxHealth,
 } from '@/types/api';
 
 const API_BASE = '/api';
@@ -101,6 +105,37 @@ class ApiClient {
 
   async diagnosePterodactyl(): Promise<PterodactylDiagnosis> {
     return this.fetch<PterodactylDiagnosis>('/pterodactyl/diagnose');
+  }
+
+  // NAS API
+  async getNASSystems(): Promise<{ systems: any[]; total: number }> {
+    return this.fetch<{ systems: any[]; total: number }>('/nas/systems');
+  }
+
+  async getNASHealth(): Promise<{ status: string; checks: any; message: string }> {
+    return this.fetch<{ status: string; checks: any; message: string }>('/nas/health');
+  }
+
+  // Proxmox USB API
+  async getProxmoxHealth(host: string = 'pve3'): Promise<ProxmoxHealth> {
+    return this.fetch<ProxmoxHealth>(`/proxmox/health?host=${host}`);
+  }
+
+  async getUSBStatus(vmId: number, host: string = 'pve3'): Promise<USBHealthStatus> {
+    return this.fetch<USBHealthStatus>(`/proxmox/vms/${vmId}/usb?host=${host}`);
+  }
+
+  async resetUSBDevice(vmId: number, deviceId: string, host: string = 'pve3'): Promise<USBResetResponse> {
+    return this.fetch<USBResetResponse>(`/proxmox/vms/${vmId}/usb/reset?host=${host}`, {
+      method: 'POST',
+      body: JSON.stringify({ device_id: deviceId, use_hostport: true }),
+    });
+  }
+
+  async autoFixUSB(vmId: number, host: string = 'pve3'): Promise<USBAutoFixResponse> {
+    return this.fetch<USBAutoFixResponse>(`/proxmox/vms/${vmId}/usb/auto-fix?host=${host}`, {
+      method: 'POST',
+    });
   }
 }
 

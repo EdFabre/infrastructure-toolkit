@@ -1,5 +1,5 @@
 project_name: infrastructure-toolkit
-version: 1.0.0
+version: 1.1.0
 ai_workflow_enabled: true
 components:
   core:
@@ -29,9 +29,13 @@ sync_tracking:
 metadata:
   created_at: '2025-11-16T22:01:44.797363+00:00'
   created_by: lifecycle-manager
-  last_updated: '2025-11-16T22:01:44.923663+00:00'
+  last_updated: '2025-12-10T02:51:00+00:00'
 operations:
 - timestamp: '2025-11-16T22:01:44.923513+00:00'
   action: init
   result: success
   details: Project initialized for lifecycle management
+- timestamp: '2025-12-10T02:51:00+00:00'
+  action: release
+  result: success
+  details: v1.1.0 - Docker deployment, auth, full web dashboard

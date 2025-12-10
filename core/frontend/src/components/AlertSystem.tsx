@@ -20,7 +20,7 @@ export const AlertSystem: React.FC<AlertSystemProps> = ({ servers }) => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isEnabled, setIsEnabled] = useState(true);
   const [showPanel, setShowPanel] = useState(false);
-  const [playSound, setPlaySound] = useState(true);
+  const playSound = true; // Sound notifications enabled by default
 
   useEffect(() => {
     if (!servers || !isEnabled) return;

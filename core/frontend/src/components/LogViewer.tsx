@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Download, Filter, Play, Pause, Trash2 } from 'lucide-react';
+import { Search, Download, Play, Pause, Trash2 } from 'lucide-react';
 import { useLogsWebSocket } from '@/hooks/useWebSocket';
 
 interface LogViewerProps {
@@ -213,6 +213,15 @@ export const LogViewer: React.FC<LogViewerProps> = ({ server }) => {
           {filteredLines.length} / {logs.split('\n').filter(l => l.trim()).length} lines
         </div>
       </div>
+
+      {/* Connection Error */}
+      {!isConnected && (
+        <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
+          <p className="text-red-400">
+            Unable to connect to log stream. Check that the server is reachable and the WebSocket connection is working.
+          </p>
+        </div>
+      )}
 
       {/* Log Display */}
       <div

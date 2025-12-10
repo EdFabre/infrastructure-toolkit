@@ -10,7 +10,7 @@ RUN npm install --legacy-peer-deps
 
 # Copy source code (excluding node_modules)
 COPY src ./src
-COPY public ./public 2>/dev/null || true
+COPY public ./public
 COPY index.html ./
 COPY vite.config.ts ./
 COPY tsconfig.json ./

@@ -15,6 +15,7 @@ Features:
 import json
 import logging
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,9 +23,32 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from ..base_tool import BaseTool
+from ..cache import TTLCache
 
 
 logger = logging.getLogger(__name__)
+
+# Module-level thread pool executor
+_docker_thread_pool = None
+
+# Module-level cache
+_docker_cache = None
+
+
+def get_docker_thread_pool() -> ThreadPoolExecutor:
+    """Get or create shared thread pool executor for Docker operations."""
+    global _docker_thread_pool
+    if _docker_thread_pool is None:
+        _docker_thread_pool = ThreadPoolExecutor(max_workers=10, thread_name_prefix="docker-worker")
+    return _docker_thread_pool
+
+
+def get_docker_cache() -> TTLCache:
+    """Get or create shared Docker cache."""
+    global _docker_cache
+    if _docker_cache is None:
+        _docker_cache = TTLCache(default_ttl=60)
+    return _docker_cache
 
 
 class DockerTool(BaseTool):
@@ -95,6 +119,10 @@ class DockerTool(BaseTool):
         # Backup retention (keep last N backups)
         self.backup_retention = config.get("docker", {}).get("backup_retention", 10)
 
+        # Use shared thread pool and cache
+        self._executor = get_docker_thread_pool()
+        self._cache = get_docker_cache()
+
     @classmethod
     def tool_name(cls) -> str:
         return "docker"
@@ -105,6 +133,7 @@ class DockerTool(BaseTool):
 
         # Look for config in multiple locations
         config_paths = [
+            Path("/app/config.yaml"),  # Docker container mount
             Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml"),
             Path.home() / ".config" / "infrastructure-toolkit" / "config.yaml",
         ]
@@ -338,9 +367,20 @@ class DockerTool(BaseTool):
             containers = []
             for line in result.stdout.strip().split('\n'):
                 if line:
-                    container = json.loads(line)
-                    # Add server information
-                    container["Server"] = server if server else "local"
+                    raw_container = json.loads(line)
+                    # Transform Docker JSON to match frontend interface
+                    # Use server parameter if provided, otherwise use self.server, fallback to "local"
+                    server_name = server if server else (self.server if self.server else "local")
+                    container = {
+                        "id": raw_container.get("ID", ""),
+                        "name": raw_container.get("Names", ""),
+                        "image": raw_container.get("Image", ""),
+                        "status": raw_container.get("Status", ""),
+                        "state": raw_container.get("State", ""),
+                        "created_at": raw_container.get("CreatedAt", ""),
+                        "ports": raw_container.get("Ports", "").split(", ") if raw_container.get("Ports") else [],
+                        "server": server_name
+                    }
                     containers.append(container)
 
             logger.info(f"Found {len(containers)} running container(s) on {server or 'local'}")
@@ -350,30 +390,64 @@ class DockerTool(BaseTool):
             logger.error(f"Error getting running services on {server or 'local'}: {e}")
             return []
 
-    def get_all_running_services(self) -> List[Dict[str, str]]:
+    def get_all_running_services(self, use_cache: bool = True, timeout: float = 30.0) -> List[Dict[str, str]]:
         """
-        Get list of running containers across all configured servers.
+        Get list of running containers across all configured servers in parallel.
+
+        Args:
+            use_cache: Use cached results if available (default: True)
+            timeout: Overall timeout for all queries (default: 30s)
 
         Returns:
             List of container info dictionaries with server information
         """
+        # Check cache first
+        cache_key = "all_containers"
+        if use_cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                logger.info("Returning cached container list")
+                return cached
+
         all_containers = []
 
         # Query each server (servers can be dict or list)
         if isinstance(self.servers, dict):
-            server_items = self.servers.items()
+            server_items = list(self.servers.items())
         else:
             server_items = [(s, s) for s in self.servers]
 
-        for hostname, server_addr in server_items:
-            logger.info(f"Querying {hostname} ({server_addr})...")
-            containers = self.get_running_services(server=server_addr)
+        logger.info(f"Querying {len(server_items)} servers in parallel for Docker containers...")
 
-            # Update Server field to use friendly hostname instead of IP
-            for container in containers:
-                container["Server"] = hostname
+        # Submit all server queries to thread pool
+        futures = {
+            self._executor.submit(self.get_running_services, server_addr): (hostname, server_addr)
+            for hostname, server_addr in server_items
+        }
 
-            all_containers.extend(containers)
+        # Collect results as they complete
+        try:
+            for future in as_completed(futures, timeout=timeout):
+                hostname, server_addr = futures[future]
+                try:
+                    containers = future.result(timeout=5.0)
+
+                    # Update server field to use friendly hostname instead of IP
+                    for container in containers:
+                        container["server"] = hostname
+
+                    all_containers.extend(containers)
+                    logger.debug(f"✓ Collected {len(containers)} container(s) from {hostname}")
+
+                except Exception as e:
+                    logger.error(f"✗ Failed to get containers from {hostname}: {e}")
+
+        except Exception as e:
+            logger.error(f"Overall timeout or error collecting containers: {e}")
+
+        # Cache results
+        if use_cache and all_containers:
+            self._cache.set(cache_key, all_containers, ttl=60)
 
         logger.info(f"Found {len(all_containers)} total container(s) across {len(server_items)} server(s)")
         return all_containers

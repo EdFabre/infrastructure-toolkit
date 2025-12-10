@@ -7,8 +7,10 @@ interface ServerCardProps {
   metrics: ServerMetrics;
 }
 
-function formatBytes(bytes: number): string {
-  const gb = bytes / (1024 ** 3);
+function formatGB(gb: number | undefined): string {
+  if (gb === undefined || gb === null) {
+    return 'N/A';
+  }
   return `${gb.toFixed(1)} GB`;
 }
 
@@ -76,10 +78,10 @@ export const ServerCard: React.FC<ServerCardProps> = ({ metrics }) => {
             <div>
               <p className="text-xs text-slate-400">Memory</p>
               <p className="text-lg font-semibold text-white">
-                {metrics.memory.used_percent.toFixed(1)}%
+                {metrics.memory.used_percent?.toFixed(1) || 'N/A'}%
               </p>
               <p className="text-xs text-slate-500">
-                {formatBytes(metrics.memory.used_bytes)} / {formatBytes(metrics.memory.total_bytes)}
+                {formatGB((metrics.memory as any).used_gb || metrics.memory.used_bytes)} / {formatGB((metrics.memory as any).total_gb || metrics.memory.total_bytes)}
               </p>
             </div>
           </div>
@@ -92,10 +94,10 @@ export const ServerCard: React.FC<ServerCardProps> = ({ metrics }) => {
             <div>
               <p className="text-xs text-slate-400">Disk</p>
               <p className="text-lg font-semibold text-white">
-                {metrics.disk.used_percent.toFixed(1)}%
+                {metrics.disk.used_percent?.toFixed(1) || 'N/A'}%
               </p>
               <p className="text-xs text-slate-500">
-                {formatBytes(metrics.disk.used_bytes)} / {formatBytes(metrics.disk.total_bytes)}
+                {formatGB((metrics.disk as any).used_gb || metrics.disk.used_bytes)} / {formatGB((metrics.disk as any).total_gb || metrics.disk.total_bytes)}
               </p>
             </div>
           </div>

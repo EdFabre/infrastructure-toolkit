@@ -1,52 +1,46 @@
 ---
-version: "3.7"
+# Infrastructure Toolkit - Production Docker Compose
+# Cloud Native Pattern: Simple containers, external proxy handles routing
+#
+# Usage:
+#   docker-compose build
+#   docker-compose up -d
+#
+# Note: Configure your reverse proxy (Nginx/Traefik/Caddy) to:
+#   - Route / to frontend container (port 8080)
+#   - Route /api to backend container (port 8000)
+
+version: "3.3"
 
 services:
   backend:
+    build:
+      context: ./core/backend
+      dockerfile: Dockerfile
     image: infra-toolkit-backend:latest
     container_name: infra-toolkit-backend
     environment:
       - TZ=America/New_York
       - PYTHONUNBUFFERED=1
     volumes:
-      # Mount config
+      # Persist database
+      - ./data:/app/data
+      # Mount config (read-only)
       - /mnt/tank/faststorage/general/repo/ai-config/config.yaml:/app/config.yaml:ro
-      # Mount SSH keys for server access
+      # Mount SSH keys for server access (read-only)
       - /root/.ssh:/root/.ssh:ro
     ports:
-      - "8001:8000"
+      - "8000:8000"
     restart: unless-stopped
-    networks:
-      - infra-toolkit
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   frontend:
     build:
       context: ./core/frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+    image: infra-toolkit-frontend:latest
     container_name: infra-toolkit-frontend
     environment:
       - TZ=America/New_York
-      - NODE_ENV=development
-      - VITE_API_URL=http://192.168.1.10:8001
-    volumes:
-      # Mount source for hot reload
-      - ./core/frontend/src:/app/src:ro
-      - ./core/frontend/public:/app/public:ro
-      - ./core/frontend/vite.config.ts:/app/vite.config.ts:ro
     ports:
-      - "5173:5173"
-    depends_on:
-      - backend
+      - "8080:80"
     restart: unless-stopped
-    networks:
-      - infra-toolkit
-
-networks:
-  infra-toolkit:
-    driver: bridge

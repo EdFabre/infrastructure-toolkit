@@ -1,0 +1,19 @@
+Email Configuration Test - Infrastructure Toolkit
+
+Congratulations!
+
+Your email configuration is working correctly. This test email was sent successfully from Infrastructure Toolkit.
+
+Test Details:
+- Sent at: {{ test_time }}
+- SMTP Server: {{ smtp_host }}:{{ smtp_port }}
+
+You can now use the email notification system for:
+- Password reset requests
+- Security alerts
+- System notifications
+- Custom notifications
+
+---
+This is an automated test message from Infrastructure Toolkit.
+© {{ current_year }} Infrastructure Toolkit. All rights reserved.

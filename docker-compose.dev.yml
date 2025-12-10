@@ -1,0 +1,71 @@
+---
+# Infrastructure Toolkit - Development Docker Compose
+# Hot-reload enabled for both frontend and backend
+#
+# Usage:
+#   docker-compose -f docker-compose.dev.yml up
+#
+# Or run services separately for debugging:
+#   cd core/backend && uvicorn infra_toolkit.api.main:app --reload --port 8000
+#   cd core/frontend && npm run dev
+
+version: "3.3"
+
+services:
+  backend:
+    build:
+      context: ./core/backend
+      dockerfile: Dockerfile
+    container_name: infra-toolkit-backend-dev
+    environment:
+      - TZ=America/New_York
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount source for hot reload
+      - ./core/backend/infra_toolkit:/app/infra_toolkit:ro
+      # Persist database
+      - ./data:/app/data
+      # Mount config (read-only)
+      - /mnt/tank/faststorage/general/repo/ai-config/config.yaml:/app/config.yaml:ro
+      # Mount SSH keys for server access (read-only)
+      - /root/.ssh:/root/.ssh:ro
+    ports:
+      - "8000:8000"
+    networks:
+      - infra-toolkit-dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Enable reload in development
+    command: ["uvicorn", "infra_toolkit.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./core/frontend
+      dockerfile: Dockerfile.dev
+    container_name: infra-toolkit-frontend-dev
+    environment:
+      - TZ=America/New_York
+      - NODE_ENV=development
+    volumes:
+      # Mount source for hot reload
+      - ./core/frontend/src:/app/src:ro
+      - ./core/frontend/public:/app/public:ro
+      - ./core/frontend/index.html:/app/index.html:ro
+      - ./core/frontend/vite.config.ts:/app/vite.config.ts:ro
+      - ./core/frontend/tailwind.config.js:/app/tailwind.config.js:ro
+      - ./core/frontend/postcss.config.js:/app/postcss.config.js:ro
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - infra-toolkit-dev
+    restart: unless-stopped
+
+networks:
+  infra-toolkit-dev:
+    driver: bridge
