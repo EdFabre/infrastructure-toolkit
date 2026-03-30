@@ -338,18 +338,19 @@ def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) 
             ip = args.ip
             port = args.port
             protocol = getattr(args, "protocol", "http")
+            explicit_hostname = getattr(args, "hostname", None)
 
             if dry_run:
                 console.print(f"[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
 
-            hostname = f"{service}.{domain}.com"
+            hostname = explicit_hostname or f"{service}.{tool.domain_fqdn}"
             service_url = f"{protocol}://{ip}:{port}"
 
             console.print(f"Adding hostname: [cyan]{hostname}[/cyan]")
             console.print(f"Service URL: [green]{service_url}[/green]\n")
 
             if not dry_run:
-                success = tool.add_hostname(service, ip, port, protocol)
+                success = tool.add_hostname(service, ip, port, protocol, hostname=explicit_hostname)
 
                 if success:
                     console.print(f"\n[bold green]✓ Success![/bold green] Hostname added: {hostname}")
@@ -452,6 +453,84 @@ def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) 
                 else:
                     console.print(f"\n[bold red]✗ Restore failed[/bold red]")
                     return 1
+
+        elif subcommand == "remove":
+            hostname = args.hostname
+            console.print(f"Removing hostname: [cyan]{hostname}[/cyan]\n")
+            if dry_run:
+                console.print("[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
+                console.print("[yellow]Dry-run complete - no changes made[/yellow]")
+            else:
+                success = tool.remove_hostname(hostname)
+                if success:
+                    console.print(f"\n[bold green]✓ Success![/bold green] Hostname removed: {hostname}")
+                else:
+                    console.print(f"\n[bold red]✗ Failed[/bold red] to remove hostname")
+                    return 1
+
+        elif subcommand == "dns-list":
+            record_type = getattr(args, "record_type", None)
+            records = tool.list_dns_records(record_type=record_type)
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("ID", style="dim", max_width=16)
+            table.add_column("Type", style="cyan")
+            table.add_column("Name", style="green")
+            table.add_column("Content", style="white", max_width=50)
+            table.add_column("Proxied", style="yellow")
+
+            for rec in records:
+                table.add_row(
+                    rec["id"][:16], rec["type"], rec["name"],
+                    rec["content"][:50], str(rec.get("proxied", False))
+                )
+
+            console.print(f"\n[bold]DNS Records ({len(records)} total):[/bold]\n")
+            console.print(table)
+            console.print()
+
+        elif subcommand == "dns-add":
+            proxied = not getattr(args, "no_proxy", False)
+            result = tool.add_dns_record(args.record_type, args.name, args.content, proxied=proxied)
+            if result.get("already_exists"):
+                console.print(f"[yellow]DNS record already exists: {args.name}[/yellow]")
+            else:
+                console.print(f"[bold green]✓ DNS record created:[/bold green] {args.record_type} {args.name} → {args.content}")
+
+        elif subcommand == "dns-remove":
+            tool.remove_dns_record(args.record_id)
+            console.print(f"[bold green]✓ DNS record deleted[/bold green]")
+
+        elif subcommand == "access-list":
+            apps = tool.list_access_apps()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("ID", style="dim", max_width=20)
+            table.add_column("Name", style="cyan")
+            table.add_column("Domain", style="green")
+            table.add_column("Type", style="white")
+
+            for app in apps:
+                table.add_row(app["id"][:20], app["name"], app.get("domain", ""), app.get("type", ""))
+
+            console.print(f"\n[bold]Access Applications ({len(apps)} total):[/bold]\n")
+            console.print(table)
+            console.print()
+
+        elif subcommand == "access-create-app":
+            result = tool.create_access_app(
+                args.name, args.app_domain,
+                session_duration=getattr(args, "session_duration", "24h")
+            )
+            console.print(f"[bold green]✓ Access app created:[/bold green] {result['name']} (ID: {result['id']})")
+
+        elif subcommand == "access-add-policy":
+            result = tool.add_access_policy(
+                args.app_id, args.policy_name,
+                decision=getattr(args, "decision", "allow"),
+                emails=args.emails
+            )
+            console.print(f"[bold green]✓ Policy added:[/bold green] {result['name']}")
 
         else:
             console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
