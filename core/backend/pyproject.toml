@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "infrastructure-toolkit"
-version = "1.0.0"
+version = "1.1.0"
 description = "Standardized CLI toolkit for infrastructure management with built-in safety mechanisms"
 authors = [
     {name = "Claude Code", email = "noreply@anthropic.com"}
