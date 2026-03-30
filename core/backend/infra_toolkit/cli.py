@@ -473,7 +473,7 @@ def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) 
             records = tool.list_dns_records(record_type=record_type)
 
             table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("ID", style="dim", max_width=16)
+            table.add_column("ID", style="dim")
             table.add_column("Type", style="cyan")
             table.add_column("Name", style="green")
             table.add_column("Content", style="white", max_width=50)
@@ -481,7 +481,7 @@ def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) 
 
             for rec in records:
                 table.add_row(
-                    rec["id"][:16], rec["type"], rec["name"],
+                    rec["id"], rec["type"], rec["name"],
                     rec["content"][:50], str(rec.get("proxied", False))
                 )
 
