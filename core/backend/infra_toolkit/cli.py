@@ -22,17 +22,25 @@ from .tools.network import NetworkTool
 from .tools.docker import DockerTool
 from .tools.nas import NASTool
 from .tools.proxmox import ProxmoxTool
+from .tools.homeassistant import HomeAssistantTool
+from .tools.ups import UPSTool
+from .tools.uptime_kuma import UptimeKumaTool
+from .tools.protonmail import ProtonMailTool
 
 
 # Tool registry
 AVAILABLE_TOOLS: Dict[str, Type[BaseTool]] = {
     "cloudflare": CloudflareTool,
     "docker": DockerTool,
+    "homeassistant": HomeAssistantTool,
     "nas": NASTool,
     "network": NetworkTool,
     "performance": PerformanceTool,
     "proxmox": ProxmoxTool,
     "pterodactyl": PterodactylTool,
+    "ups": UPSTool,
+    "uptime-kuma": UptimeKumaTool,
+    "protonmail": ProtonMailTool,
 }
 
 
@@ -226,6 +234,35 @@ def execute_tool(args) -> int:
                 verbose=verbose,
                 no_verify=no_verify
             )
+        elif tool_name == "homeassistant":
+            tool = tool_class(
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        elif tool_name == "ups":
+            tool = tool_class(
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        elif tool_name == "uptime-kuma":
+            # Load config for uptime-kuma
+            config = _load_tool_config()
+            tool = tool_class(
+                config=config,
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
+        elif tool_name == "protonmail":
+            config = _load_tool_config()
+            tool = tool_class(
+                config=config,
+                dry_run=dry_run,
+                verbose=verbose,
+                no_verify=no_verify
+            )
         else:
             # Generic initialization for future tools
             tool = tool_class(
@@ -256,6 +293,14 @@ def execute_tool(args) -> int:
             return _handle_nas(tool, subcommand, args, dry_run)
         elif tool_name == "proxmox":
             return _handle_proxmox(tool, subcommand, args, dry_run)
+        elif tool_name == "homeassistant":
+            return _handle_homeassistant(tool, subcommand, args, dry_run)
+        elif tool_name == "ups":
+            return _handle_ups(tool, subcommand, args)
+        elif tool_name == "uptime-kuma":
+            return _handle_uptime_kuma(tool, subcommand, args)
+        elif tool_name == "protonmail":
+            return _handle_protonmail(tool, subcommand, args)
         else:
             console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
             return 1
@@ -1069,6 +1114,18 @@ def _handle_docker(tool, subcommand: str, args, dry_run: bool) -> int:
 
             console.print(logs)
 
+        elif subcommand == "inventory":
+            console.print("[bold cyan]Generating Docker Container Inventory...[/bold cyan]\n")
+            success = tool.inventory()
+            if not success:
+                return 1
+
+        elif subcommand == "login":
+            registry_name = getattr(args, "registry", None)
+            success = tool.login_registry(registry_name)
+            if not success:
+                return 1
+
         # Pass through other Docker-specific commands to the tool
         elif subcommand in ["validate", "backups", "rollback", "deploy", "restart", "sync"]:
             # These are existing DockerTool methods - call the tool method directly
@@ -1396,6 +1453,554 @@ def _handle_proxmox(tool, subcommand: str, args, dry_run: bool) -> int:
                     is_healthy = device.get("is_healthy", True)
                     status_str = "[green]✓[/green]" if is_healthy else "[red]✗[/red]"
                     console.print(f"  {status_str} {device['device_id']}: {device['product_name']} @ {device['speed']}")
+
+            console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if getattr(args, "verbose", False):
+            console.print_exception()
+        return 1
+
+
+def _handle_homeassistant(tool, subcommand: str, args, dry_run: bool) -> int:
+    """Handle Home Assistant tool subcommands."""
+    try:
+        if subcommand == "status":
+            console.print("[bold cyan]Home Assistant Status[/bold cyan]\n")
+
+            # Get VM status
+            vm_status = tool.get_vm_status()
+
+            # VM Info Table
+            table = Table(show_header=False)
+            table.add_column("Property", style="cyan")
+            table.add_column("Value", style="white")
+
+            table.add_row("VM ID", str(tool.HA_CONFIG.vm_id))
+            table.add_row("VM Name", tool.HA_CONFIG.vm_name)
+            table.add_row("Proxmox Host", f"{tool.HA_CONFIG.proxmox_host} ({tool.HA_CONFIG.proxmox_ip})")
+
+            vm_state = vm_status.get("status", "unknown")
+            if vm_state == "running":
+                state_str = "[green]running[/green]"
+            elif vm_state == "stopped":
+                state_str = "[red]stopped[/red]"
+            else:
+                state_str = f"[yellow]{vm_state}[/yellow]"
+            table.add_row("VM Status", state_str)
+
+            if vm_status.get("uptime"):
+                uptime_str = vm_status["uptime"]
+                if vm_status.get("long_uptime_warning"):
+                    uptime_str = f"[yellow]{uptime_str} (consider restart)[/yellow]"
+                table.add_row("Uptime", uptime_str)
+
+            table.add_row("", "")
+            table.add_row("[bold]Network[/bold]", "")
+            table.add_row("HA IP", tool.HA_CONFIG.ha_ip)
+            table.add_row("HA Port", str(tool.HA_CONFIG.ha_port))
+            table.add_row("VLAN", f"{tool.HA_CONFIG.vlan} ({tool.HA_CONFIG.network_name})")
+            table.add_row("External URL", f"https://{tool.HA_CONFIG.cloudflare_hostname}")
+
+            console.print(table)
+
+            # Service check
+            service = tool.check_service_health()
+            console.print(f"\n[bold]Service Status:[/bold] ", end="")
+            if service["status"] == "healthy":
+                console.print("[green]✓ HEALTHY[/green]")
+            elif service["status"] == "degraded":
+                console.print("[yellow]⚠ DEGRADED[/yellow]")
+            else:
+                console.print("[red]✗ UNHEALTHY[/red]")
+
+            console.print()
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]Home Assistant Health Check[/bold cyan]\n")
+
+            health = tool.health_check()
+
+            # Summary
+            status = health["status"]
+            if status == "healthy":
+                console.print(f"[bold green]✓ {health['message']}[/bold green]\n")
+            elif status == "degraded":
+                console.print(f"[bold yellow]⚠ {health['message']}[/bold yellow]\n")
+            else:
+                console.print(f"[bold red]✗ {health['message']}[/bold red]\n")
+
+            # Checks table
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Check", style="cyan")
+            table.add_column("Status", style="white")
+
+            for check_name, check_result in health["checks"].items():
+                status_str = "[green]✓ PASS[/green]" if check_result else "[red]✗ FAIL[/red]"
+                # Make check name more readable
+                display_name = check_name.replace("_", " ").title()
+                table.add_row(display_name, status_str)
+
+            console.print(table)
+
+            # VM details
+            vm = health.get("vm", {})
+            if vm.get("long_uptime_warning"):
+                console.print(f"\n[yellow]⚠ Long uptime warning:[/yellow] VM has been running for {vm.get('uptime', 'unknown')}")
+                console.print("  Consider restarting to prevent resource exhaustion")
+
+            # Return non-zero if unhealthy
+            if status == "unhealthy":
+                return 1
+
+            console.print()
+
+        elif subcommand == "start":
+            if dry_run:
+                console.print(f"[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
+
+            console.print(f"[bold cyan]Starting Home Assistant VM...[/bold cyan]\n")
+
+            result = tool.start_vm()
+
+            if result["status"] == "success":
+                console.print(f"[bold green]✓ {result['message']}[/bold green]")
+            elif result["status"] == "dry_run":
+                console.print(f"[yellow]{result['message']}[/yellow]")
+            else:
+                console.print(f"[bold red]✗ {result['message']}[/bold red]")
+                return 1
+
+        elif subcommand == "stop":
+            force = getattr(args, "force", False)
+
+            if dry_run:
+                console.print(f"[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
+
+            if force:
+                console.print(f"[bold cyan]Force stopping Home Assistant VM...[/bold cyan]\n")
+            else:
+                console.print(f"[bold cyan]Stopping Home Assistant VM (graceful)...[/bold cyan]\n")
+
+            result = tool.stop_vm(force=force)
+
+            if result["status"] == "success":
+                console.print(f"[bold green]✓ {result['message']}[/bold green]")
+            elif result["status"] == "dry_run":
+                console.print(f"[yellow]{result['message']}[/yellow]")
+            else:
+                console.print(f"[bold red]✗ {result['message']}[/bold red]")
+                return 1
+
+        elif subcommand == "restart":
+            force = getattr(args, "force", False)
+            no_wait = getattr(args, "no_wait", False)
+
+            if dry_run:
+                console.print(f"[bold yellow]DRY RUN MODE[/bold yellow] - No changes will be made\n")
+
+            console.print(f"[bold cyan]Restarting Home Assistant VM...[/bold cyan]\n")
+
+            result = tool.restart_vm(force=force, wait_for_service=not no_wait)
+
+            if result["status"] == "success":
+                console.print(f"[bold green]✓ {result['message']}[/bold green]")
+                if "elapsed_seconds" in result:
+                    console.print(f"  Elapsed time: {result['elapsed_seconds']}s")
+            elif result["status"] == "partial":
+                console.print(f"[bold yellow]⚠ {result['message']}[/bold yellow]")
+                if "elapsed_seconds" in result:
+                    console.print(f"  Elapsed time: {result['elapsed_seconds']}s")
+                console.print("  Service may still be starting up - check again in a few minutes")
+            elif result["status"] == "dry_run":
+                console.print(f"[yellow]{result['message']}[/yellow]")
+            else:
+                console.print(f"[bold red]✗ {result['message']}[/bold red]")
+                return 1
+
+        elif subcommand == "tunnel-status":
+            console.print("[bold cyan]Cloudflare Tunnel Status[/bold cyan]\n")
+
+            tunnel = tool.check_cloudflare_tunnel()
+
+            # Summary
+            status = tunnel["status"]
+            if status == "healthy":
+                console.print(f"[bold green]✓ Tunnel healthy[/bold green]\n")
+            elif status == "degraded":
+                console.print(f"[bold yellow]⚠ Tunnel degraded[/bold yellow]\n")
+            else:
+                console.print(f"[bold red]✗ Tunnel unhealthy[/bold red]\n")
+
+            # Details table
+            table = Table(show_header=False)
+            table.add_column("Property", style="cyan")
+            table.add_column("Value", style="white")
+
+            table.add_row("External URL", f"https://{tunnel['hostname']}")
+            table.add_row("Tunnel Host", tunnel["tunnel_host"])
+            table.add_row("Tunnel Container", tunnel["tunnel_container"])
+
+            checks = tunnel["checks"]
+            ext_status = "[green]✓ Accessible[/green]" if checks["external_accessible"] else "[red]✗ Not accessible[/red]"
+            table.add_row("External Access", ext_status)
+
+            if checks.get("external_status_code"):
+                table.add_row("HTTP Status", str(checks["external_status_code"]))
+
+            container_status = "[green]✓ Running[/green]" if checks["tunnel_container_running"] else "[red]✗ Not running[/red]"
+            table.add_row("Container Status", container_status)
+
+            console.print(table)
+
+            if not checks["external_accessible"]:
+                console.print(f"\n[yellow]Hint:[/yellow] Check tunnel logs with:")
+                console.print(f"  ssh root@{tool.CLOUDFLARE_TUNNEL['host_ip']} \"docker logs --tail 50 {tunnel['tunnel_container']}\"")
+
+            console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if getattr(args, "verbose", False):
+            console.print_exception()
+        return 1
+
+
+def _handle_ups(tool, subcommand: str, args) -> int:
+    """Handle UPS tool subcommands."""
+    try:
+        if subcommand == "status":
+            console.print("[bold cyan]UPS Status[/bold cyan]\n")
+
+            data = tool.status()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Smart-UPS (Servers)", style="white")
+            table.add_column("BE600M1 (Network)", style="white")
+
+            smart = data["smart_ups"]
+            be600 = data["be600m1"]
+
+            # Online status
+            smart_online = "[green]ONLINE[/green]" if smart["online"] else "[red]OFFLINE[/red]"
+            be600_online = "[green]ONLINE[/green]" if be600["online"] else "[red]OFFLINE[/red]"
+            table.add_row("Status", smart_online, be600_online)
+
+            # Battery
+            smart_batt = f"{smart['battery_pct']:.1f}%" if smart["battery_pct"] is not None else "N/A"
+            be600_batt = f"{be600['battery_pct']:.1f}%" if be600["battery_pct"] is not None else "N/A"
+            table.add_row("Battery", smart_batt, be600_batt)
+
+            # Runtime
+            def fmt_runtime(s):
+                if s is None:
+                    return "N/A"
+                mins = int(s) // 60
+                secs = int(s) % 60
+                return f"{mins}m {secs}s"
+
+            table.add_row("Runtime", fmt_runtime(smart["runtime_s"]), fmt_runtime(be600["runtime_s"]))
+
+            # Load
+            smart_load = f"{smart['load_pct']:.1f}%" if smart["load_pct"] is not None else "N/A"
+            be600_load = f"{be600['load_pct']:.1f}%" if be600["load_pct"] is not None else "N/A"
+            table.add_row("Load", smart_load, be600_load)
+
+            # Input voltage
+            smart_inv = f"{smart['input_v']:.1f}V" if smart["input_v"] is not None else "N/A"
+            be600_inv = f"{be600['input_v']:.1f}V" if be600["input_v"] is not None else "N/A"
+            table.add_row("Input Voltage", smart_inv, be600_inv)
+
+            # Smart-UPS only metrics
+            smart_outv = f"{smart['output_v']:.1f}V" if smart["output_v"] is not None else "N/A"
+            table.add_row("Output Voltage", smart_outv, "---")
+
+            smart_temp = f"{smart['temp_c']:.1f}C" if smart["temp_c"] is not None else "N/A"
+            table.add_row("Battery Temp", smart_temp, "---")
+
+            smart_eff = f"{smart['efficiency_pct']:.1f}%" if smart["efficiency_pct"] is not None else "N/A"
+            table.add_row("Efficiency", smart_eff, "---")
+
+            smart_energy = f"{smart['energy_kwh']:.3f} kWh" if smart["energy_kwh"] is not None else "N/A"
+            table.add_row("Energy (total)", smart_energy, "---")
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "history":
+            duration = getattr(args, "duration", "1h")
+            console.print(f"[bold cyan]UPS History ({duration})[/bold cyan]\n")
+
+            data = tool.history(duration)
+
+            for ups_name, label in [("smart_ups", "Smart-UPS (Servers)"), ("be600m1", "BE600M1 (Network)")]:
+                ups_hist = data.get(ups_name, {})
+                if not ups_hist:
+                    console.print(f"[yellow]{label}: No data available[/yellow]\n")
+                    continue
+
+                console.print(f"[bold]{label}[/bold]")
+                table = Table(show_header=True, header_style="bold magenta")
+                table.add_column("Metric", style="cyan")
+                table.add_column("Min", style="green")
+                table.add_column("Max", style="red")
+                table.add_column("Avg", style="yellow")
+                table.add_column("Samples", style="dim")
+
+                for metric_name, stats in ups_hist.items():
+                    table.add_row(
+                        metric_name,
+                        str(stats["min"]),
+                        str(stats["max"]),
+                        str(stats["avg"]),
+                        str(stats["samples"]),
+                    )
+
+                console.print(table)
+                console.print()
+
+        elif subcommand == "energy":
+            console.print("[bold cyan]Energy Consumption (Smart-UPS)[/bold cyan]\n")
+
+            data = tool.energy()
+
+            table = Table(show_header=False)
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+
+            daily = f"{data['daily_kwh']:.3f} kWh" if data["daily_kwh"] is not None else "N/A"
+            weekly = f"{data['weekly_kwh']:.3f} kWh" if data["weekly_kwh"] is not None else "N/A"
+            watts = f"{data['current_watts']:.1f} W" if data["current_watts"] is not None else "N/A"
+
+            table.add_row("Current Draw", watts)
+            table.add_row("Last 24h", daily)
+            table.add_row("Last 7d", weekly)
+
+            console.print(table)
+            console.print()
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]UPS Health Check (Prometheus)[/bold cyan]\n")
+
+            result = tool.health_check()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Check", style="cyan")
+            table.add_column("Status", style="white")
+
+            for check_name, check_result in result["checks"].items():
+                if isinstance(check_result, bool):
+                    status_str = "[green]PASS[/green]" if check_result else "[red]FAIL[/red]"
+                    table.add_row(check_name, status_str)
+
+            console.print(table)
+
+            if result["status"] == "healthy":
+                console.print(f"\n[bold green]Prometheus reachable at {tool.prom_url}[/bold green]")
+            else:
+                console.print(f"\n[bold red]Cannot reach Prometheus[/bold red]")
+                console.print(f"  {result['message']}")
+                return 1
+
+            console.print()
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if getattr(args, "verbose", False):
+            console.print_exception()
+        return 1
+
+
+def _handle_protonmail(tool, subcommand: str, args) -> int:
+    """Handle ProtonMail tool subcommands."""
+    try:
+        if subcommand == "test":
+            smtp_only = getattr(args, "smtp", False)
+            imap_only = getattr(args, "imap", False)
+            send_test = getattr(args, "send_test", False)
+            skip_container = getattr(args, "no_container_check", False)
+            test_both = not smtp_only and not imap_only
+
+            console.print("[bold cyan]ProtonMail Bridge Connectivity Test[/bold cyan]\n")
+            console.print(f"  Host: {tool.host}")
+            console.print(f"  SMTP Port: {tool.smtp_port}")
+            console.print(f"  IMAP Port: {tool.imap_port}")
+            console.print(f"  Username: {tool.username}\n")
+
+            all_passed = True
+
+            # Container check
+            if not skip_container:
+                console.print("[cyan]Checking Docker container...[/cyan]")
+                ok, msg = tool.check_container()
+                if ok:
+                    console.print(f"  [green]PASS[/green] {msg}")
+                else:
+                    console.print(f"  [red]FAIL[/red] {msg}")
+                    console.print("[red]Fix container issues before testing protocols.[/red]")
+                    return 1
+                console.print()
+
+            # SMTP
+            if smtp_only or test_both:
+                console.print("[cyan]Testing SMTP...[/cyan]")
+                ok, msg = tool.test_smtp(send_test=send_test)
+                if ok:
+                    console.print(f"  [green]PASS[/green] {msg}")
+                else:
+                    console.print(f"  [red]FAIL[/red] {msg}")
+                    all_passed = False
+                console.print()
+
+            # IMAP
+            if imap_only or test_both:
+                console.print("[cyan]Testing IMAP...[/cyan]")
+                ok, msg = tool.test_imap()
+                if ok:
+                    console.print(f"  [green]PASS[/green] {msg}")
+                else:
+                    console.print(f"  [red]FAIL[/red] {msg}")
+                    all_passed = False
+                console.print()
+
+            if all_passed:
+                console.print("[bold green]All tests passed[/bold green]")
+            else:
+                console.print("[bold red]Some tests failed[/bold red]")
+                return 1
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]ProtonMail Bridge Health Check[/bold cyan]\n")
+
+            result = tool.health_check()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Check", style="cyan")
+            table.add_column("Status", style="white")
+            table.add_column("Details", style="white")
+
+            for check_name, check_data in result["checks"].items():
+                status_str = (
+                    "[green]PASS[/green]"
+                    if check_data["status"]
+                    else "[red]FAIL[/red]"
+                )
+                table.add_row(check_name, status_str, check_data["message"])
+
+            console.print(table)
+
+            if result["status"] == "healthy":
+                console.print(f"\n[bold green]{result['message']}[/bold green]")
+            else:
+                console.print(f"\n[bold red]{result['message']}[/bold red]")
+                return 1
+
+        else:
+            console.print(f"[bold red]Error:[/bold red] Unknown subcommand: {subcommand}")
+            return 1
+
+        return 0
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        return 130
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}")
+        if getattr(args, "verbose", False):
+            console.print_exception()
+        return 1
+
+
+def _load_tool_config() -> dict:
+    """Load configuration from config.yaml for tools that need it."""
+    import yaml
+    config_paths = [
+        Path("/app/config.yaml"),
+        Path("/mnt/tank/faststorage/general/repo/ai-config/config.yaml"),
+        Path.home() / ".config" / "infrastructure-toolkit" / "config.yaml",
+    ]
+    for config_path in config_paths:
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                return yaml.safe_load(f) or {}
+    return {}
+
+
+def _handle_uptime_kuma(tool, subcommand: str, args) -> int:
+    """Handle Uptime Kuma tool subcommands."""
+    try:
+        if subcommand == "export":
+            console.print("[bold cyan]Exporting Uptime Kuma monitors...[/bold cyan]\n")
+            success = tool.export_monitors()
+            if success:
+                console.print(f"\n[bold green]Export complete[/bold green]")
+            else:
+                console.print(f"\n[bold red]Export failed[/bold red]")
+                return 1
+
+        elif subcommand == "backup":
+            console.print("[bold cyan]Backing up Uptime Kuma database...[/bold cyan]\n")
+            success = tool.backup()
+            if success:
+                console.print(f"\n[bold green]Backup complete[/bold green]")
+            else:
+                console.print(f"\n[bold red]Backup failed[/bold red]")
+                return 1
+
+        elif subcommand == "health-check":
+            console.print("[bold cyan]Uptime Kuma Health Check[/bold cyan]\n")
+
+            result = tool.health_check()
+
+            table = Table(show_header=True, header_style="bold magenta")
+            table.add_column("Check", style="cyan")
+            table.add_column("Status", style="white")
+
+            for check_name, check_result in result["checks"].items():
+                if isinstance(check_result, bool):
+                    status_str = "[green]PASS[/green]" if check_result else "[red]FAIL[/red]"
+                    table.add_row(check_name, status_str)
+
+            console.print(table)
+
+            if result["status"] == "healthy":
+                console.print(f"\n[bold green]{result['message']}[/bold green]")
+            else:
+                console.print(f"\n[bold red]{result['message']}[/bold red]")
+                return 1
 
             console.print()
 

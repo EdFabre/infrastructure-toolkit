@@ -73,7 +73,11 @@ class CloudflareTool(BaseTool):
         })
 
         # Minimum hostname count threshold (to detect accidental wipes)
-        self.min_hostname_count = 20
+        # ramcyber has fewer hostnames by design (business site vs homelab)
+        if domain == "ramcyber":
+            self.min_hostname_count = 3
+        else:
+            self.min_hostname_count = 20
 
     @classmethod
     def tool_name(cls) -> str:
@@ -324,9 +328,9 @@ class CloudflareTool(BaseTool):
 
         Args:
             service_name: Service name (e.g., 'prowlarr')
-            server_ip: Server IP address
-            port: Port number
-            protocol: Protocol ('http' or 'https')
+            server_ip: Server IP address (use 'localhost' for SSH on same machine)
+            port: Port number (22 for SSH)
+            protocol: Protocol ('http', 'https', or 'ssh')
 
         Returns:
             True if successful
@@ -581,9 +585,9 @@ class CloudflareTool(BaseTool):
         add_parser.add_argument("port", type=int, help="Port number")
         add_parser.add_argument(
             "--protocol",
-            choices=["http", "https"],
+            choices=["http", "https", "ssh"],
             default="http",
-            help="Protocol (default: http)"
+            help="Protocol (default: http). Use 'ssh' for SSH tunnels."
         )
 
         # Validate command

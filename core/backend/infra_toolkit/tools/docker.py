@@ -781,6 +781,13 @@ class DockerTool(BaseTool):
         sync_parser = subparsers.add_parser("sync", help="Sync configuration from repository")
         sync_parser.add_argument("--verify", action="store_true", default=True, help="Verify configuration before sync")
 
+        # Inventory command
+        subparsers.add_parser("inventory", help="Generate inventory from linux-servers compose files")
+
+        # Login command
+        login_parser = subparsers.add_parser("login", help="Login to a Docker registry")
+        login_parser.add_argument("registry", nargs="?", help="Registry name (default: from config)")
+
     def deploy(self, from_repo: bool = False, service: Optional[str] = None) -> Dict[str, Any]:
         """
         Deploy docker-compose changes with automatic backup and verification.
@@ -938,6 +945,107 @@ class DockerTool(BaseTool):
         except Exception as e:
             logger.error(f"Restart error: {e}")
             raise
+
+    def inventory(self) -> bool:
+        """Generate inventory of Docker containers across linux-servers."""
+        servers_dir = Path(
+            self.config.get("repo_base", "/mnt/tank/faststorage/general/repo/linux-servers")
+        )
+        output_file = Path(f"/tmp/docker-inventory-{datetime.now().strftime('%Y%m%d-%H%M%S')}.md")
+
+        lines = [
+            "# Docker Container Inventory\n",
+            f"\nGenerated: {datetime.now()}\n",
+            "\n## Overview\n",
+        ]
+
+        servers_scanned = 0
+        compose_count = 0
+
+        for pattern in ["masteryi-boss-*", "masteryi-king-*"]:
+            for server_dir in sorted(servers_dir.glob(pattern)):
+                if not server_dir.is_dir():
+                    continue
+                servers_scanned += 1
+
+                compose_file = server_dir / "opt" / "docker" / "docker-compose.yml"
+                if not compose_file.exists():
+                    continue
+                compose_count += 1
+
+                server_name = server_dir.name
+                lines.append(f"\n### {server_name}\n\n")
+                lines.append("| Container | Image | Restart |\n")
+                lines.append("|-----------|-------|---------|\n")
+
+                try:
+                    with open(compose_file) as f:
+                        compose_data = yaml.safe_load(f)
+
+                    services = compose_data.get("services", {})
+                    for svc_name, svc_config in services.items():
+                        image = svc_config.get("image", "build")
+                        restart = svc_config.get("restart", "N/A")
+                        lines.append(f"| {svc_name} | {image} | {restart} |\n")
+                except Exception as e:
+                    lines.append(f"\nError parsing {compose_file}: {e}\n")
+
+        lines.append(f"\n## Summary\n\n")
+        lines.append(f"- **Servers Scanned**: {servers_scanned}\n")
+        lines.append(f"- **Servers with Docker Compose**: {compose_count}\n")
+
+        output_file.write_text("".join(lines))
+        print("".join(lines))
+        print(f"\nInventory saved to: {output_file}")
+        return True
+
+    def login_registry(self, registry_name: str = None) -> bool:
+        """Login to a Docker registry using config credentials."""
+        docker_config = self.config.get("docker", {})
+        if not docker_config:
+            print("ERROR: No docker configuration found in config.yaml")
+            return False
+
+        if not registry_name:
+            registry_name = docker_config.get("default")
+            if not registry_name:
+                print("No default registry specified. Available:")
+                for name in docker_config:
+                    if name != "default":
+                        print(f"  - {name}")
+                return False
+
+        if registry_name not in docker_config:
+            print(f"ERROR: Registry '{registry_name}' not found")
+            print(f"Available: {', '.join(k for k in docker_config if k != 'default')}")
+            return False
+
+        reg_config = docker_config[registry_name]
+        username = reg_config["username"]
+        token = reg_config["token"]
+        registry = reg_config.get("registry", "")
+
+        print(f"Logging into {registry_name} ({registry}) as {username}...")
+
+        cmd = ["docker", "login"]
+        if registry:
+            cmd.append(registry)
+        cmd.extend(["-u", username, "--password-stdin"])
+
+        process = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
+        )
+        stdout, stderr = process.communicate(input=token)
+
+        if process.returncode == 0:
+            print(f"Successfully logged into {registry_name}")
+            if registry == "ghcr.io":
+                print(f"  Push with: docker push ghcr.io/{username}/IMAGE:TAG")
+            return True
+        else:
+            print(f"Failed to login: {stderr}")
+            return False
 
     def view_logs(self, service: str, tail: int = 100, follow: bool = False) -> None:
         """
