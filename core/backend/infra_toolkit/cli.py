@@ -14,6 +14,16 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
+try:
+    from ef_metrics import track_command, track_operation
+except ImportError:
+    def track_command(tool_name, command=None):
+        def decorator(func): return func
+        return decorator
+    def track_operation(name, op_type="other"):
+        from contextlib import nullcontext
+        return nullcontext()
+
 from .base_tool import BaseTool
 from .tools.cloudflare import CloudflareTool
 from .tools.pterodactyl import PterodactylTool
@@ -153,6 +163,12 @@ Examples:
         # Let the tool configure its own parser
         tool_class.configure_parser(tool_parser)
 
+    # Register serve command
+    serve_parser = subparsers.add_parser("serve", help="Start the REST API server")
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    serve_parser.add_argument("--port", type=int, default=8123, help="Bind port (default: 8123)")
+    serve_parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev mode)")
+
     return parser
 
 
@@ -279,31 +295,32 @@ def execute_tool(args) -> int:
             return 1
 
         # Route to appropriate handler based on tool
-        if tool_name == "cloudflare":
-            return _handle_cloudflare(tool, subcommand, args, dry_run, domain)
-        elif tool_name == "pterodactyl":
-            return _handle_pterodactyl(tool, subcommand, args)
-        elif tool_name == "performance":
-            return _handle_performance(tool, subcommand, args)
-        elif tool_name == "network":
-            return _handle_network(tool, subcommand, args)
-        elif tool_name == "docker":
-            return _handle_docker(tool, subcommand, args, dry_run)
-        elif tool_name == "nas":
-            return _handle_nas(tool, subcommand, args, dry_run)
-        elif tool_name == "proxmox":
-            return _handle_proxmox(tool, subcommand, args, dry_run)
-        elif tool_name == "homeassistant":
-            return _handle_homeassistant(tool, subcommand, args, dry_run)
-        elif tool_name == "ups":
-            return _handle_ups(tool, subcommand, args)
-        elif tool_name == "uptime-kuma":
-            return _handle_uptime_kuma(tool, subcommand, args)
-        elif tool_name == "protonmail":
-            return _handle_protonmail(tool, subcommand, args)
-        else:
-            console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
-            return 1
+        with track_operation(f"handle.{tool_name}.{subcommand}", op_type="api"):
+            if tool_name == "cloudflare":
+                return _handle_cloudflare(tool, subcommand, args, dry_run, domain)
+            elif tool_name == "pterodactyl":
+                return _handle_pterodactyl(tool, subcommand, args)
+            elif tool_name == "performance":
+                return _handle_performance(tool, subcommand, args)
+            elif tool_name == "network":
+                return _handle_network(tool, subcommand, args)
+            elif tool_name == "docker":
+                return _handle_docker(tool, subcommand, args, dry_run)
+            elif tool_name == "nas":
+                return _handle_nas(tool, subcommand, args, dry_run)
+            elif tool_name == "proxmox":
+                return _handle_proxmox(tool, subcommand, args, dry_run)
+            elif tool_name == "homeassistant":
+                return _handle_homeassistant(tool, subcommand, args, dry_run)
+            elif tool_name == "ups":
+                return _handle_ups(tool, subcommand, args)
+            elif tool_name == "uptime-kuma":
+                return _handle_uptime_kuma(tool, subcommand, args)
+            elif tool_name == "protonmail":
+                return _handle_protonmail(tool, subcommand, args)
+            else:
+                console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
+                return 1
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Operation cancelled by user[/yellow]")
@@ -2113,6 +2130,20 @@ def main():
         list_tools()
         return 0
 
+    # Handle serve command
+    if args.tool == "serve":
+        try:
+            import uvicorn
+        except ImportError:
+            console.print("[red]uvicorn not installed. Run: pip install uvicorn[standard][/red]")
+            return 1
+        host = getattr(args, "host", "127.0.0.1")
+        port = getattr(args, "port", 8123)
+        reload = getattr(args, "reload", False)
+        console.print(f"[green]Starting Infrastructure Toolkit API on http://{host}:{port}[/green]")
+        uvicorn.run("infra_toolkit.api.main:app", host=host, port=port, reload=reload)
+        return 0
+
     # Check if tool specified
     if not args.tool:
         parser.print_help()
@@ -2120,7 +2151,11 @@ def main():
         return 1
 
     # Execute tool
-    exit_code = execute_tool(args)
+    @track_command(tool_name="infrastructure-toolkit", command=args.tool)
+    def _dispatch():
+        return execute_tool(args)
+
+    exit_code = _dispatch()
     sys.exit(exit_code)
 
 
