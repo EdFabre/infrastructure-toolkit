@@ -23,6 +23,7 @@ dependencies = [
     "jinja2>=3.1.0",  # Template engine for email
     "pydantic[email]>=2.0.0",  # Email validation for Pydantic
     "uptime_kuma_api>=1.0.0",  # Uptime Kuma monitor management
+    "ef-metrics @ git+ssh://git@github.com/EdFabre/ef-metrics.git#subdirectory=core/backend",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
