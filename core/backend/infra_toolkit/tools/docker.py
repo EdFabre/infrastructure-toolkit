@@ -204,16 +204,14 @@ class DockerTool(BaseTool):
             # Resolve server hostname to IP address
             server_ip = self._resolve_server_address(self.server)
 
-            # Wrap command in SSH with options for non-interactive execution
-            ssh_command = [
-                "ssh",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "LogLevel=ERROR",
-                f"root@{server_ip}",
-                cmd_string
-            ]
-            return subprocess.run(ssh_command, capture_output=True, text=True, **kwargs)
+            from infra_toolkit.utils.ssh import run_ssh_command
+
+            timeout = kwargs.pop("timeout", 30)
+            return run_ssh_command(
+                host=server_ip,
+                command=cmd_string,
+                timeout=timeout,
+            )
         else:
             return subprocess.run(command, capture_output=True, text=True, **kwargs)
 

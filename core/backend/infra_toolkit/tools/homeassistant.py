@@ -117,22 +117,12 @@ class HomeAssistantTool(BaseTool):
         Returns:
             CompletedProcess result
         """
-        ssh_cmd = [
-            "ssh",
-            "-i", str(Path.home() / ".ssh" / "id_rsa"),
-            "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=no",
-            f"root@{host_ip}",
-            command
-        ]
+        from infra_toolkit.utils.ssh import run_ssh_command
 
-        logger.debug(f"SSH to {host_ip}: {command}")
-
-        return subprocess.run(
-            ssh_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
+        return run_ssh_command(
+            host=host_ip,
+            command=command,
+            timeout=timeout,
         )
 
     def _check_port(self, ip: str, port: int, timeout: float = None) -> bool:

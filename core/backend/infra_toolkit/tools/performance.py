@@ -220,19 +220,16 @@ class PerformanceTool(BaseTool):
         Returns:
             CompletedProcess result
         """
+        from infra_toolkit.utils.ssh import run_ssh_command
+
         server_ip = self._resolve_server_address(server)
         cmd_string = " ".join(command)
 
-        ssh_command = [
-            "ssh",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "LogLevel=ERROR",
-            f"root@{server_ip}",
-            cmd_string
-        ]
-
-        return subprocess.run(ssh_command, capture_output=True, text=True, timeout=10)
+        return run_ssh_command(
+            host=server_ip,
+            command=cmd_string,
+            timeout=10,
+        )
 
     def _query_prometheus_exporter(self, server: str, port: int) -> Optional[str]:
         """

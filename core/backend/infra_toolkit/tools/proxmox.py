@@ -131,21 +131,13 @@ class ProxmoxTool(BaseTool):
         Returns:
             CompletedProcess result
         """
-        ssh_cmd = [
-            "ssh",
-            "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=no",
-            f"{self.host_config['ssh_user']}@{self.host_config['ip']}",
-            command
-        ]
+        from infra_toolkit.utils.ssh import run_ssh_command
 
-        logger.debug(f"SSH: {command}")
-
-        return subprocess.run(
-            ssh_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
+        return run_ssh_command(
+            host=self.host_config["ip"],
+            command=command,
+            user=self.host_config["ssh_user"],
+            timeout=timeout,
         )
 
     def _qmp_command(self, vm_id: int, command: str, arguments: Optional[Dict] = None) -> Dict:
