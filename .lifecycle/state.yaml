@@ -26,10 +26,6 @@ sync_tracking:
   enabled: true
   last_sync: null
   operations: []
-project_deps:
-  - name: ef-metrics
-    local_path: /mnt/tank/faststorage/general/repo/projects/ef-metrics/core/backend
-    required: false
 metadata:
   created_at: '2025-11-16T22:01:44.797363+00:00'
   created_by: lifecycle-manager
