@@ -2139,11 +2139,7 @@ def main():
         return 1
 
     # Execute tool
-    @track_command(tool_name="infrastructure-toolkit", command=args.tool)
-    def _dispatch():
-        return execute_tool(args)
-
-    exit_code = _dispatch()
+    exit_code = execute_tool(args)
 
     if _HAS_EF_LOGGING:
         _dur = int((_time.monotonic() - _start) * 1000)
