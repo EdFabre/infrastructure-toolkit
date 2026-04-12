@@ -22,6 +22,8 @@ services:
     environment:
       - TZ=America/New_York
       - PYTHONUNBUFFERED=1
+      - EF_METRICS_LOG_MODE=both
+      - EF_METRICS_LOG_DIR=/var/log/ef
     volumes:
       # Persist database
       - ./data:/app/data
@@ -29,6 +31,8 @@ services:
       - /mnt/tank/faststorage/general/repo/ai-config/config.yaml:/app/config.yaml:ro
       # Mount SSH keys for server access (read-only)
       - /root/.ssh:/root/.ssh:ro
+      # ef-metrics log agent
+      - /srv/ef-logs/infrastructure-toolkit:/var/log/ef
     ports:
       - "8000:8000"
     restart: unless-stopped

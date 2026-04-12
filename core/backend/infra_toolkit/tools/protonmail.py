@@ -28,6 +28,10 @@ class ProtonMailTool(BaseTool):
     running on boss-04, including Docker container status verification.
     """
 
+    @classmethod
+    def tool_name(cls) -> str:
+        return "protonmail"
+
     def __init__(self, config: Dict[str, Any], **kwargs):
         super().__init__(config, **kwargs)
         self.pm_config = config.get("protonmail", {})
@@ -42,6 +46,20 @@ class ProtonMailTool(BaseTool):
         self.compose_path = self.pm_config.get("docker", {}).get(
             "compose_path", "/opt/docker"
         )
+
+    def validate_config(self) -> bool:
+        if not self.smtp_port or not self.imap_port:
+            raise ValueError("Missing SMTP or IMAP port in protonmail config")
+        if not self.username or not self.password:
+            raise ValueError("Missing credentials in protonmail config")
+        return True
+
+    def get_current_state(self) -> Dict[str, Any]:
+        return {"tool": "protonmail", "host": self.host}
+
+    def rollback_from_backup(self, backup_path) -> bool:
+        # Read-only tool, no rollback needed
+        return True
 
     @classmethod
     def configure_parser(cls, parser):
@@ -182,7 +200,7 @@ except Exception as e:
                 [
                     "ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
                     f"root@{self.host}",
-                    f"python3 {temp_path}; rm -f {temp_path}",
+                    f"python3 {temp_path}; rc=$?; rm -f {temp_path}; exit $rc",
                 ],
                 capture_output=True,
                 text=True,
