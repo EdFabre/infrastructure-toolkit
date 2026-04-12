@@ -13,17 +13,6 @@ from typing import Dict, Type
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
-
-try:
-    from ef_metrics import track_command, track_operation
-except ImportError:
-    def track_command(tool_name, command=None):
-        def decorator(func): return func
-        return decorator
-    def track_operation(name, op_type="other"):
-        from contextlib import nullcontext
-        return nullcontext()
-
 try:
     from ef_metrics.agent.logging import setup_logging as _ef_setup, log_event as _ef_log_event, new_trace as _ef_new_trace, clear_trace as _ef_clear_trace
     _HAS_EF_LOGGING = True
@@ -43,7 +32,6 @@ from .tools.ups import UPSTool
 from .tools.uptime_kuma import UptimeKumaTool
 from .tools.protonmail import ProtonMailTool
 
-
 # Tool registry
 AVAILABLE_TOOLS: Dict[str, Type[BaseTool]] = {
     "cloudflare": CloudflareTool,
@@ -59,9 +47,7 @@ AVAILABLE_TOOLS: Dict[str, Type[BaseTool]] = {
     "protonmail": ProtonMailTool,
 }
 
-
 console = Console()
-
 
 def setup_logging(verbose: bool = False):
     """
@@ -79,7 +65,6 @@ def setup_logging(verbose: bool = False):
         handlers=[RichHandler(console=console, rich_tracebacks=True)]
     )
 
-
 def list_tools():
     """List all available tools."""
     console.print("\n[bold cyan]Available Infrastructure Tools:[/bold cyan]\n")
@@ -96,7 +81,6 @@ def list_tools():
 
     console.print(table)
     console.print(f"\nUsage: infra-toolkit <tool> [options]\n")
-
 
 def create_parser() -> argparse.ArgumentParser:
     """
@@ -176,7 +160,6 @@ Examples:
     serve_parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev mode)")
 
     return parser
-
 
 def execute_tool(args) -> int:
     """
@@ -301,32 +284,31 @@ def execute_tool(args) -> int:
             return 1
 
         # Route to appropriate handler based on tool
-        with track_operation(f"handle.{tool_name}.{subcommand}", op_type="api"):
-            if tool_name == "cloudflare":
-                return _handle_cloudflare(tool, subcommand, args, dry_run, domain)
-            elif tool_name == "pterodactyl":
-                return _handle_pterodactyl(tool, subcommand, args)
-            elif tool_name == "performance":
-                return _handle_performance(tool, subcommand, args)
-            elif tool_name == "network":
-                return _handle_network(tool, subcommand, args)
-            elif tool_name == "docker":
-                return _handle_docker(tool, subcommand, args, dry_run)
-            elif tool_name == "nas":
-                return _handle_nas(tool, subcommand, args, dry_run)
-            elif tool_name == "proxmox":
-                return _handle_proxmox(tool, subcommand, args, dry_run)
-            elif tool_name == "homeassistant":
-                return _handle_homeassistant(tool, subcommand, args, dry_run)
-            elif tool_name == "ups":
-                return _handle_ups(tool, subcommand, args)
-            elif tool_name == "uptime-kuma":
-                return _handle_uptime_kuma(tool, subcommand, args)
-            elif tool_name == "protonmail":
-                return _handle_protonmail(tool, subcommand, args)
-            else:
-                console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
-                return 1
+        if tool_name == "cloudflare":
+            return _handle_cloudflare(tool, subcommand, args, dry_run, domain)
+        elif tool_name == "pterodactyl":
+            return _handle_pterodactyl(tool, subcommand, args)
+        elif tool_name == "performance":
+            return _handle_performance(tool, subcommand, args)
+        elif tool_name == "network":
+            return _handle_network(tool, subcommand, args)
+        elif tool_name == "docker":
+            return _handle_docker(tool, subcommand, args, dry_run)
+        elif tool_name == "nas":
+            return _handle_nas(tool, subcommand, args, dry_run)
+        elif tool_name == "proxmox":
+            return _handle_proxmox(tool, subcommand, args, dry_run)
+        elif tool_name == "homeassistant":
+            return _handle_homeassistant(tool, subcommand, args, dry_run)
+        elif tool_name == "ups":
+            return _handle_ups(tool, subcommand, args)
+        elif tool_name == "uptime-kuma":
+            return _handle_uptime_kuma(tool, subcommand, args)
+        elif tool_name == "protonmail":
+            return _handle_protonmail(tool, subcommand, args)
+        else:
+            console.print(f"[bold red]Error:[/bold red] No handler for tool: {tool_name}")
+            return 1
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Operation cancelled by user[/yellow]")
@@ -337,7 +319,6 @@ def execute_tool(args) -> int:
         if verbose:
             console.print_exception()
         return 1
-
 
 def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) -> int:
     """Handle Cloudflare tool subcommands."""
@@ -571,7 +552,6 @@ def _handle_cloudflare(tool, subcommand: str, args, dry_run: bool, domain: str) 
             console.print_exception()
         return 1
 
-
 def _handle_pterodactyl(tool, subcommand: str, args) -> int:
     """Handle Pterodactyl tool subcommands."""
     try:
@@ -712,7 +692,6 @@ def _handle_pterodactyl(tool, subcommand: str, args) -> int:
         if args.verbose:
             console.print_exception()
         return 1
-
 
 def _handle_performance(tool, subcommand: str, args) -> int:
     """Handle Performance tool subcommands."""
@@ -910,7 +889,6 @@ def _handle_performance(tool, subcommand: str, args) -> int:
             console.print_exception()
         return 1
 
-
 def _handle_network(tool, subcommand: str, args) -> int:
     """Handle Network tool subcommands."""
     try:
@@ -1101,7 +1079,6 @@ def _handle_network(tool, subcommand: str, args) -> int:
             console.print_exception()
         return 1
 
-
 def _handle_docker(tool, subcommand: str, args, dry_run: bool) -> int:
     """Handle Docker tool subcommands."""
     try:
@@ -1254,7 +1231,6 @@ def _handle_docker(tool, subcommand: str, args, dry_run: bool) -> int:
         if args.verbose:
             console.print_exception()
         return 1
-
 
 def _handle_nas(tool, subcommand: str, args, dry_run: bool) -> int:
     """Handle NAS tool subcommands."""
@@ -1425,7 +1401,6 @@ def _handle_nas(tool, subcommand: str, args, dry_run: bool) -> int:
             console.print_exception()
         return 1
 
-
 def _handle_proxmox(tool, subcommand: str, args, dry_run: bool) -> int:
     """Handle Proxmox tool subcommands."""
     try:
@@ -1573,7 +1548,6 @@ def _handle_proxmox(tool, subcommand: str, args, dry_run: bool) -> int:
         if getattr(args, "verbose", False):
             console.print_exception()
         return 1
-
 
 def _handle_homeassistant(tool, subcommand: str, args, dry_run: bool) -> int:
     """Handle Home Assistant tool subcommands."""
@@ -1788,7 +1762,6 @@ def _handle_homeassistant(tool, subcommand: str, args, dry_run: bool) -> int:
             console.print_exception()
         return 1
 
-
 def _handle_ups(tool, subcommand: str, args) -> int:
     """Handle UPS tool subcommands."""
     try:
@@ -1944,7 +1917,6 @@ def _handle_ups(tool, subcommand: str, args) -> int:
             console.print_exception()
         return 1
 
-
 def _handle_protonmail(tool, subcommand: str, args) -> int:
     """Handle ProtonMail tool subcommands."""
     try:
@@ -2045,7 +2017,6 @@ def _handle_protonmail(tool, subcommand: str, args) -> int:
             console.print_exception()
         return 1
 
-
 def _load_tool_config() -> dict:
     """Load configuration from config.yaml for tools that need it."""
     import yaml
@@ -2059,7 +2030,6 @@ def _load_tool_config() -> dict:
             with open(config_path, "r") as f:
                 return yaml.safe_load(f) or {}
     return {}
-
 
 def _handle_uptime_kuma(tool, subcommand: str, args) -> int:
     """Handle Uptime Kuma tool subcommands."""
@@ -2122,7 +2092,6 @@ def _handle_uptime_kuma(tool, subcommand: str, args) -> int:
             console.print_exception()
         return 1
 
-
 def main():
     """Main entry point for CLI."""
     parser = create_parser()
@@ -2184,7 +2153,6 @@ def main():
         _ef_clear_trace()
 
     sys.exit(exit_code)
-
 
 if __name__ == "__main__":
     main()

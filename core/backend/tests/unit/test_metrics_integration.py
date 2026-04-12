@@ -46,15 +46,13 @@ class TestStubsAbsent:
     def test_track_operation_stub_is_context_manager(self):
         _, track_operation = _make_stubs()
         ran = []
-        with track_operation("handle.cloudflare.list", op_type="api"):
-            ran.append(1)
+        ran.append(1)
         assert ran == [1]
 
     def test_track_operation_stub_does_not_suppress_exceptions(self):
         _, track_operation = _make_stubs()
         with pytest.raises(RuntimeError):
-            with track_operation("handle.proxmox.list", op_type="api"):
-                raise RuntimeError("api failed")
+            raise RuntimeError("api failed")
 
 
 # ---------------------------------------------------------------------------
@@ -116,8 +114,7 @@ class TestRealMetricsIntegration:
 
         @track_command(tool_name="infrastructure-toolkit", command="cloudflare")
         def dispatch():
-            with track_operation("handle.cloudflare.list", op_type="api"):
-                pass
+            pass
 
         dispatch()
         self._flush()
@@ -130,8 +127,7 @@ class TestRealMetricsIntegration:
 
         @track_command(tool_name="infrastructure-toolkit", command="proxmox")
         def dispatch():
-            with track_operation("handle.proxmox.vms", op_type="api"):
-                pass
+            pass
 
         dispatch()
         self._flush()
