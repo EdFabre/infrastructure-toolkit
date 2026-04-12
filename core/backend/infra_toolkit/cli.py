@@ -13,11 +13,10 @@ from typing import Dict, Type
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
-try:
-    from ef_metrics.agent.logging import setup_logging as _ef_setup, log_event as _ef_log_event, new_trace as _ef_new_trace, clear_trace as _ef_clear_trace
-    _HAS_EF_LOGGING = True
-except ImportError:
-    _HAS_EF_LOGGING = False
+from .json_log import setup_logging as _jl_setup, new_trace as _jl_trace
+import logging as _logging
+_jl_setup(also_stdout=False)
+_jl = _logging.getLogger("infra_toolkit")
 
 from .base_tool import BaseTool
 from .tools.cloudflare import CloudflareTool
@@ -2100,15 +2099,12 @@ def main():
     # Setup logging
     setup_logging(verbose=getattr(args, "verbose", False))
 
-    # Native structured JSON logging
-    if _HAS_EF_LOGGING:
-        _ef_setup("infrastructure-toolkit", also_stdout=False)
-        _ef_new_trace()
-        cmd_name = getattr(args, "tool", None) or "unknown"
-        subcommand = getattr(args, "subcommand", None)
-        if subcommand:
-            cmd_name = f"{cmd_name}.{subcommand}"
-        _ef_log_event("command", phase="start", command=cmd_name)
+    _jl_trace()
+    cmd_name = getattr(args, "tool", None) or "unknown"
+    subcommand = getattr(args, "subcommand", None)
+    if subcommand:
+        cmd_name = f"{cmd_name}.{subcommand}"
+    _jl.info({"event": "command", "phase": "start", "command": cmd_name})
 
     import time as _time
     _start = _time.monotonic()
@@ -2141,12 +2137,10 @@ def main():
     # Execute tool
     exit_code = execute_tool(args)
 
-    if _HAS_EF_LOGGING:
-        _dur = int((_time.monotonic() - _start) * 1000)
-        _ef_log_event("command", phase="end", command=cmd_name,
-                      success=(exit_code in (None, 0)), duration_ms=_dur,
-                      failure_reason=None if exit_code in (None, 0) else f"exit({exit_code})")
-        _ef_clear_trace()
+    _dur = int((_time.monotonic() - _start) * 1000)
+    _jl.info({"event": "command", "phase": "end", "command": cmd_name,
+              "success": (exit_code in (None, 0)), "duration_ms": _dur,
+              "failure_reason": None if exit_code in (None, 0) else f"exit({exit_code})"})
 
     sys.exit(exit_code)
 
