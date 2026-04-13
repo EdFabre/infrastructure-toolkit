@@ -24,7 +24,6 @@ dependencies = [
     "pydantic[email]>=2.0.0",  # Email validation for Pydantic
     "uptime_kuma_api>=1.0.0",  # Uptime Kuma monitor management
     "paramiko>=3.0",  # Pure Python SSH (replaces ssh subprocess calls)
-    "ef-metrics @ git+ssh://git@github.com/EdFabre/ef-metrics.git#subdirectory=core/backend",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -35,7 +34,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.12"
 ]
 
 [project.optional-dependencies]
@@ -46,7 +45,7 @@ dev = [
     "httpx>=0.25.0",  # For FastAPI TestClient
     "black>=23.0.0",
     "flake8>=6.0.0",
-    "mypy>=1.0.0",
+    "mypy>=1.0.0"
 ]
 
 [project.scripts]
