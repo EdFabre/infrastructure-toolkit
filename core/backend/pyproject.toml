@@ -50,6 +50,7 @@ dev = [
 
 [project.scripts]
 infra-toolkit = "infra_toolkit.cli:main"
+infra-mcp = "infra_toolkit.mcp_server:serve"
 
 [tool.setuptools.packages.find]
 where = ["."]
