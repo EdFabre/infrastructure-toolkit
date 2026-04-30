@@ -3,22 +3,37 @@ version: 1.1.0
 ai_workflow_enabled: true
 components:
   core:
+    description: Core component
     areas:
-      backend:
-        path: core/backend
-        framework: python-cli
-        status: active
-        created_at: '2025-11-19T13:42:00+00:00'
       specs:
+        implementation_type: specs
+        status: detected
         path: core/specs
-        framework: openapi
+      backend:
+        implementation_type: backend
         status: active
-        created_at: '2025-11-19T13:43:00+00:00'
+        path: core/backend
+        package_manager: pip
+        language: python
+        install_type: editable
+        python_version: '>=3.8'
+        entry_points:
+        - infra-toolkit
+        - infra-mcp
+      docs:
+        implementation_type: docs
+        status: detected
+        path: core/docs
       frontend:
-        path: core/frontend
-        framework: react-vite
+        implementation_type: frontend
         status: active
-        created_at: '2025-11-19T16:45:00+00:00'
+        path: core/frontend
+        package_manager: npm
+        framework: react+vite
+        install_command: npm install
+        build_command: tsc && vite build
+        dev_command: vite
+        node_version: '>=18'
 branches:
   main: main
   develop: develop
@@ -29,7 +44,7 @@ sync_tracking:
 metadata:
   created_at: '2025-11-16T22:01:44.797363+00:00'
   created_by: lifecycle-manager
-  last_updated: '2025-12-10T02:51:00+00:00'
+  last_updated: '2026-04-30T08:03:35.059115'
 operations:
 - timestamp: '2025-11-16T22:01:44.923513+00:00'
   action: init

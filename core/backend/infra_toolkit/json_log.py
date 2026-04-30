@@ -7,10 +7,26 @@ No external dependencies — uses Python's built-in logging module.
 import json
 import logging
 import os
+import sys
+from pathlib import Path
 import socket
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
+
+
+def _default_log_dir() -> str:
+    """Return the platform-appropriate default log directory."""
+    env = os.environ.get("EF_METRICS_LOG_DIR")
+    if env:
+        return env
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return str(Path(base) / "ef-metrics" / "logs")
+    if sys.platform == "darwin":
+        return str(Path.home() / "Library" / "Logs" / "ef-metrics")
+    return "/var/log/ef"
+
 
 _trace_id: ContextVar[str] = ContextVar("trace_id", default="")
 _TOOL_NAME = "infrastructure-toolkit"
@@ -51,7 +67,7 @@ def get_trace_id() -> str:
 
 def setup_logging(also_stdout: bool = True):
     """Configure JSON logging to file and optionally stdout."""
-    log_dir = os.environ.get("EF_METRICS_LOG_DIR", "/var/log/ef")
+    log_dir = _default_log_dir()
     formatter = JSONFormatter()
     root = logging.getLogger()
     root.handlers.clear()
@@ -70,3 +86,15 @@ def setup_logging(also_stdout: bool = True):
         sh = logging.StreamHandler()
         sh.setFormatter(formatter)
         root.addHandler(sh)
+
+
+# ---------------------------------------------------------------------------
+# Structured event helpers (standalone — no ef-metrics dependency)
+# ---------------------------------------------------------------------------
+
+_jl = logging.getLogger("ef_log")
+
+
+def _emit(event: dict) -> None:
+    """Write a structured JSON log event."""
+    _jl.info(event)
