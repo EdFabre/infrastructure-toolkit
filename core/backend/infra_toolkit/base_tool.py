@@ -114,15 +114,70 @@ class BaseTool(ABC):
         """
         Get backup directory for this tool.
 
+        Backups land in ~/.local/share/infra-toolkit/backups/<tool>/ (XDG-compliant,
+        per-user, doesn't pollute source repos). Override via the
+        INFRA_TOOLKIT_BACKUP_DIR env var.
+
+        Prior to 2026-05-03 this walked up from __file__ to the monorepo root
+        and wrote to <repo>/data/backups/<tool>/, which is wrong when installed
+        via pipx. See migration helper migrate_legacy_backups() below.
+
         Returns:
             Path to backup directory
         """
-        # Default to project data directory
+        import os
         from pathlib import Path
-        base_dir = Path(__file__).parent.parent.parent.parent.parent
-        backup_dir = base_dir / "data" / "backups" / self.tool_name()
+
+        override = os.environ.get("INFRA_TOOLKIT_BACKUP_DIR")
+        if override:
+            backup_dir = Path(override).expanduser() / self.tool_name()
+        else:
+            xdg_data = Path(
+                os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+            )
+            backup_dir = xdg_data / "infra-toolkit" / "backups" / self.tool_name()
+
         backup_dir.mkdir(parents=True, exist_ok=True)
+
+        # One-shot migration: if a legacy in-repo backup dir exists with files,
+        # move them into the new location so previous backups remain restorable.
+        self._migrate_legacy_backups_if_any(backup_dir)
+
         return backup_dir
+
+    def _migrate_legacy_backups_if_any(self, new_dir: Path) -> None:
+        """
+        If the legacy in-repo backup path exists and has files, move them into
+        new_dir. Idempotent: if nothing to migrate, this is a no-op.
+
+        Uses shutil.move so cross-device migrations (e.g., from a network mount
+        into ~/.local/share) work correctly — Path.rename fails with Errno 18
+        across filesystems.
+        """
+        import shutil
+        from pathlib import Path
+
+        legacy_root = Path(__file__).parent.parent.parent.parent.parent
+        legacy_dir = legacy_root / "data" / "backups" / self.tool_name()
+
+        if not legacy_dir.exists() or not legacy_dir.is_dir():
+            return
+        if legacy_dir.resolve() == new_dir.resolve():
+            return  # already same path (env override pointed back here)
+
+        moved = 0
+        for entry in legacy_dir.iterdir():
+            if entry.is_file():
+                target = new_dir / entry.name
+                if not target.exists():
+                    shutil.move(str(entry), str(target))
+                    moved += 1
+        if moved:
+            try:
+                # Best-effort cleanup; don't fail if dir is non-empty for any reason
+                legacy_dir.rmdir()
+            except OSError:
+                pass
 
     def execute_with_safety(
         self,
